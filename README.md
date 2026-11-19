@@ -1,20 +1,29 @@
-# Elara
+<div align="center">
 
-*Todo caminho começa com uma escolha.*
+<h1>Elara</h1>
 
-Elara é um mod de Minecraft que mostra como BFS e DFS encontram caminhos. Marque o início e a meta, avance a busca passo a passo e veja os corredores virarem um grafo.
+<p>Pick a start and a goal, then watch BFS and DFS find their way through Minecraft, one block at a time.</p>
+
+<p><em>Every path begins with a choice.</em></p>
 
 <p>
-  <img src="screens/hud.png" width="49%" alt="HUD do Elara com o tempo e os passos da BFS">
-  <img src="screens/inspetor.png" width="49%" alt="Inspetor do Elara exibindo uma expansão e seus vizinhos">
+  <img src="screens/hud.png" width="860" alt="Elara HUD showing the BFS search time and path length in the Backrooms">
 </p>
 
-## Comece por aqui
+<h2>Quick Start</h2>
 
-Baixe o [JAR da versão mais recente](https://github.com/kyl8/elara/releases/latest) e coloque na pasta `mods` de uma instância **Minecraft 1.20.1** com **Java 17**, **Fabric Loader** e [Fabric API](https://modrinth.com/mod/fabric-api/versions?g=1.20.1).
+<p>Drop <a href="https://github.com/kyl8/elara/releases/latest">the Elara JAR</a> into <code>mods</code>.<br>
+Use <strong>Minecraft 1.20.1</strong>, <strong>Java 17</strong>, <strong>Fabric Loader</strong>, and <a href="https://modrinth.com/mod/fabric-api/versions?g=1.20.1">Fabric API</a>.</p>
 
-Dentro do mundo, use `/elara help` para ver os comandos ou **F6** para abrir o inspetor. No [mapa Backrooms de Spinniest](https://www.planetminecraft.com/project/spinniest-s-vanilla-backrooms-map-unfinished-1-20-1/), `/elara exit bfs` busca a saída do Nível 0 e faz o personagem seguir o caminho.
+<p>Run <code>/elara help</code> in chat or press <strong>F6</strong> to open the inspector.</p>
 
-Para compilar e rodar os testes no Windows, use `.\gradlew.bat build`.
+<details>
+  <summary>See the search inspector</summary>
+  <p><img src="screens/inspetor.png" width="860" alt="Elara search inspector showing one expansion and its neighbors"></p>
+</details>
 
-O código é [MIT](LICENSE).
+<p>Try <code>/elara exit bfs</code> in <a href="https://www.planetminecraft.com/project/spinniest-s-vanilla-backrooms-map-unfinished-1-20-1/">Spinniest’s Backrooms</a> to find and walk to the Level 0 exit.</p>
+
+<p>Build on Windows with <code>.\gradlew.bat build</code> · <a href="LICENSE">MIT</a></p>
+
+</div>
