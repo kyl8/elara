@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "elara",
+  "version": "${version}",
+  "name": "Elara",
+  "description": "Every path begins with a choice. An educational search visualization mod.",
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["org.elaramc.client.ElaraClient"]
+  },
+  "depends": {
+    "fabricloader": ">=${loaderVersion}",
+    "minecraft": "${minecraftVersion}",
+    "java": ">=17",
+    "fabric-api": ">=${fabricApiVersion}"
+  }
+}

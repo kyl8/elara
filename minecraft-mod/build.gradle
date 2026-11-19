@@ -1,0 +1,119 @@
+import groovy.json.JsonSlurper
+
+import java.util.zip.ZipFile
+
+plugins {
+    id 'fabric-loom' version '1.6.12'
+}
+
+base {
+    archivesName = 'elara'
+}
+
+configurations {
+    bundledCore {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraftVersion}"
+    mappings "net.fabricmc:yarn:${yarnVersion}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${loaderVersion}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
+
+    implementation project(':search-core')
+    bundledCore project(':search-core')
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation "net.fabricmc:fabric-loader-junit:${loaderVersion}"
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+def debugPort = providers.gradleProperty('elaraDebugPort')
+if (debugPort.isPresent()) {
+    int port = Integer.parseInt(debugPort.get())
+    if (port < 1024 || port > 65535) {
+        throw new GradleException('elaraDebugPort must be between 1024 and 65535.')
+    }
+    tasks.named('runClient') {
+        jvmArgs "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:${port}"
+    }
+}
+
+tasks.register('validateConfig', JavaExec) {
+    group = 'verification'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.elaramc.client.config.ValidateConfig'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(17) }
+    args providers.gradleProperty('elaraConfigDir').orElse(file('run/config').absolutePath).get()
+}
+
+tasks.named('jar') {
+    from(rootProject.file('LICENSE'))
+    dependsOn configurations.bundledCore
+    from rootProject.file('LICENSE')
+    // Loom 1.6 may reuse a generated nested JAR after the core changes at the same version.
+    from({ zipTree(configurations.bundledCore.singleFile) }) {
+        include 'org/elaramc/search/**'
+    }
+}
+
+tasks.named('processResources') {
+    def metadata = [
+        version: project.version,
+        minecraftVersion: minecraftVersion,
+        loaderVersion: loaderVersion,
+        fabricApiVersion: fabricApiVersion
+    ]
+    inputs.properties(metadata)
+    filesMatching('fabric.mod.json') {
+        expand(metadata)
+    }
+}
+
+tasks.register('verifyRelease') {
+    group = 'verification'
+    description = 'Verify the distributable mod contains the client entry point and search core.'
+    def releaseJar = tasks.named('remapJar').flatMap { it.archiveFile }
+    inputs.file(releaseJar)
+
+    doLast {
+        def release = releaseJar.get().asFile
+        new ZipFile(release).withCloseable { archive ->
+            def descriptor = archive.getEntry('fabric.mod.json')
+            if (descriptor == null) {
+                throw new GradleException("Missing fabric.mod.json in ${release.name}")
+            }
+
+            def metadata = archive.getInputStream(descriptor).withCloseable { new JsonSlurper().parse(it) }
+            def entryPoint = 'org.elaramc.client.ElaraClient'
+            if (metadata.id != 'elara' || metadata.environment != 'client' ||
+                    metadata.version != project.version || metadata.depends.minecraft != minecraftVersion ||
+                    !metadata.entrypoints?.client?.contains(entryPoint) ||
+                    archive.getEntry(entryPoint.replace('.', '/') + '.class') == null) {
+                throw new GradleException("Invalid Elara client metadata or entry point in ${release.name}")
+            }
+
+            new ZipFile(configurations.bundledCore.singleFile).withCloseable { core ->
+                def classes = core.entries().findAll { it.name.endsWith('.class') }
+                if (classes.isEmpty() || classes.any { archive.getEntry(it.name) == null }) {
+                    throw new GradleException("Incomplete search-core classes in ${release.name}")
+                }
+            }
+        }
+        logger.lifecycle("Verified Elara release ${release}")
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'verifyRelease'
+}

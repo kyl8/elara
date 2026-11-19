@@ -1,0 +1,15 @@
+{
+  "key.categories.elara": "Elara",
+  "key.elara.inspect": "Open Search Inspector",
+  "key.elara.scenarios": "Save or load a scenario",
+  "key.elara.pause": "Pause or resume search",
+  "key.elara.step": "Advance one expansion",
+  "key.elara.run": "Run search",
+  "key.elara.reset": "Reset search",
+  "key.elara.walk": "Walk or stop following the path",
+  "key.elara.hud": "Toggle search HUD",
+  "key.elara.overlay": "Toggle world overlay",
+  "key.elara.algorithm": "Switch BFS and DFS",
+  "key.elara.slower": "Decrease search speed",
+  "key.elara.faster": "Increase search speed"
+}

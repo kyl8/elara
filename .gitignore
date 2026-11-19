@@ -1,0 +1,14 @@
+.gradle/
+.tools/
+build/
+run/
+*.log
+node_modules/
+~$*.pptx
+
+# Local IDE files and downloaded world saves
+.idea/
+.vscode/
+*.iml
+saves/
+/backrooms-map-e670.zip

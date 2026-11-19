@@ -1,0 +1,15 @@
+{
+  "key.categories.elara": "Elara",
+  "key.elara.inspect": "Abrir inspetor de busca",
+  "key.elara.scenarios": "Salvar ou carregar um cenário",
+  "key.elara.pause": "Pausar ou retomar busca",
+  "key.elara.step": "Avançar uma expansão",
+  "key.elara.run": "Executar busca",
+  "key.elara.reset": "Reiniciar busca",
+  "key.elara.walk": "Seguir caminho ou parar de andar",
+  "key.elara.hud": "Alternar HUD da busca",
+  "key.elara.overlay": "Alternar visualização no mundo",
+  "key.elara.algorithm": "Alternar BFS e DFS",
+  "key.elara.slower": "Diminuir velocidade da busca",
+  "key.elara.faster": "Aumentar velocidade da busca"
+}

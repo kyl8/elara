@@ -1,0 +1,42 @@
+{
+  "level0-branches": {
+    "world": "local:Backrooms by Spinniest",
+    "dimension": "minecraft:overworld",
+    "region": {"minX": -8, "minZ": 26, "maxX": 15, "maxZ": 40, "y": -43},
+    "start": {"x": 4, "y": -43, "z": 27},
+    "goal": {"x": 10, "y": -43, "z": 33},
+    "camera": {"x": 4.5, "y": -43.0, "z": 27.5, "yaw": 0, "pitch": 18},
+    "algorithm": "BFS", "expansionsPerSecond": 24
+  },
+  "level0-detour": {
+    "world": "local:Backrooms by Spinniest",
+    "dimension": "minecraft:overworld",
+    "region": {"minX": -8, "minZ": 26, "maxX": 15, "maxZ": 40, "y": -43},
+    "start": {"x": 4, "y": -43, "z": 27},
+    "goal": {"x": 2, "y": -43, "z": 37},
+    "camera": {"x": 4.5, "y": -43.0, "z": 27.5, "yaw": 0, "pitch": 18},
+    "algorithm": "BFS", "expansionsPerSecond": 24
+  },
+  "level0-no-path": {
+    "world": "local:Backrooms by Spinniest",
+    "dimension": "minecraft:overworld",
+    "region": {"minX": 8, "minZ": 27, "maxX": 14, "maxZ": 35, "y": -43},
+    "start": {"x": 10, "y": -43, "z": 30},
+    "goal": {"x": 13, "y": -43, "z": 30},
+    "camera": {"x": 9.5, "y": -43.0, "z": 29.5, "yaw": -30, "pitch": 18},
+    "algorithm": "BFS", "expansionsPerSecond": 24
+  },
+  "level0-exit": {
+    "world": "local:Backrooms by Spinniest",
+    "dimension": "minecraft:overworld",
+    "region": {"minX": -5, "minZ": 26, "maxX": 30, "maxZ": 59, "y": -43},
+    "start": {"x": 25, "y": -43, "z": 39},
+    "goal": {"x": 18, "y": -43, "z": 42},
+    "camera": {"x": 25.5, "y": -43.0, "z": 39.5, "yaw": 180, "pitch": 8},
+    "algorithm": "BFS", "expansionsPerSecond": 36,
+    "exit": {
+      "plate": {"x": 14, "y": -41, "z": 42},
+      "landing": {"x": 52, "y": -43, "z": 101}
+    }
+  }
+}

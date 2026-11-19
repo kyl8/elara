@@ -1,0 +1,31 @@
+plugins {
+    id 'base'
+}
+
+allprojects {
+    group = 'org.elaramc'
+    version = providers.gradleProperty('modVersion').get()
+}
+
+subprojects {
+    repositories {
+        mavenCentral()
+    }
+
+    plugins.withId('java') {
+        java {
+            toolchain {
+                languageVersion = JavaLanguageVersion.of(17)
+            }
+        }
+
+        tasks.withType(JavaCompile).configureEach {
+            options.release = 17
+            options.encoding = 'UTF-8'
+        }
+    }
+}
+
+tasks.named('build') {
+    dependsOn ':search-core:build', ':minecraft-mod:build'
+}
