@@ -136,7 +136,7 @@ public final class WorldSearch {
         SearchRegion region = graph().region();
         return "Região analisada | " + graph().size() + " estados transitáveis | X " + region.minX()
             + " a " + region.maxX() + " | Z " + region.minZ() + " a " + region.maxZ()
-            + " | Y " + region.y();
+            + " | Y " + region.y() + " a " + region.maxY();
     }
 
     private SearchRegion selectedRegion() {
@@ -147,20 +147,19 @@ public final class WorldSearch {
         if (firstCorner == null || secondCorner == null) {
             throw new IllegalStateException("Marque os dois cantos ou use /elara region auto.");
         }
-        if (firstCorner.y() != start.y() || secondCorner.y() != start.y()) {
-            throw new IllegalArgumentException("Os dois cantos precisam estar no piso selecionado (Y).");
-        }
+        return manualRegion();
+    }
+
+    private SearchRegion manualRegion() {
         return new SearchRegion(
             Math.min(firstCorner.x(), secondCorner.x()), Math.min(firstCorner.z(), secondCorner.z()),
-            Math.max(firstCorner.x(), secondCorner.x()), Math.max(firstCorner.z(), secondCorner.z()), start.y());
+            Math.max(firstCorner.x(), secondCorner.x()), Math.max(firstCorner.z(), secondCorner.z()),
+            Math.min(firstCorner.y(), secondCorner.y()), Math.max(firstCorner.y(), secondCorner.y()));
     }
 
     private void requireEndpoints() {
         if (start == null || goal == null) {
             throw new IllegalStateException("Marque o início com /elara origin e a chegada com /elara finish.");
-        }
-        if (start.y() != goal.y()) {
-            throw new IllegalArgumentException("Marque os dois pontos no mesmo piso (Y).");
         }
     }
 
@@ -170,7 +169,7 @@ public final class WorldSearch {
         start = origin;
         goal = target;
         firstCorner = new GridPosition(region.minX(), region.y(), region.minZ());
-        secondCorner = new GridPosition(region.maxX(), region.y(), region.maxZ());
+        secondCorner = new GridPosition(region.maxX(), region.maxY(), region.maxZ());
         snapshot = prepared;
         algorithm = selected;
         scanError = null;
@@ -200,6 +199,28 @@ public final class WorldSearch {
 
     public String startQuick() {
         return run(algorithm, true);
+    }
+
+    public SearchSession routeFrom(GridPosition position, GridPosition destination, SearchAlgorithm selected,
+                                   SearchRegion preferred) {
+        boolean sameGoal = destination.equals(goal);
+        if (snapshot != null && sameGoal && graph().contains(position)) {
+            start = position;
+        } else {
+            SearchRegion bounds = preferred;
+            if (bounds == null && sameGoal && firstCorner != null && secondCorner != null) {
+                bounds = manualRegion();
+            }
+            if (bounds != null && bounds.contains(position) && bounds.contains(destination)) {
+                prepareScenario(bounds, position, destination, selected);
+            } else {
+                start = position;
+                goal = destination;
+                useAutomaticRegion();
+            }
+        }
+        run(selected, true);
+        return session;
     }
 
     private String run(SearchAlgorithm selection, boolean instant) {
@@ -417,8 +438,7 @@ public final class WorldSearch {
     }
 
     public String elapsedLabel() {
-        long millis = timer.milliseconds();
-        return millis == 0 ? "<1 ms" : millis < 1000 ? millis + " ms" : elapsedSeconds(',') + " s";
+        return timer.label();
     }
 
     public String elapsedSeconds(char separator) {

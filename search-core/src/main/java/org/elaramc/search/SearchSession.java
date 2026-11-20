@@ -169,7 +169,7 @@ public final class SearchSession {
             events.add(new SearchEvent.PathReconstructed(path));
         } else {
             if (algorithm == SearchAlgorithm.BFS) {
-                for (Direction direction : Direction.ORDER) {
+                for (Direction direction : graph.directions()) {
                     tryDiscover(current, direction, events);
                 }
             } else {
@@ -187,10 +187,10 @@ public final class SearchSession {
         // Keep each parent's next direction so siblings are considered after the child branch.
         while (!stack.isEmpty()) {
             Frame frame = stack.getFirst();
-            if (frame.nextDirection == Direction.ORDER.size()) {
+            if (frame.nextDirection == graph.directions().size()) {
                 stack.removeFirst();
             } else {
-                Direction direction = Direction.ORDER.get(frame.nextDirection++);
+                Direction direction = graph.directions().get(frame.nextDirection++);
                 if (tryDiscover(frame.state, direction, events)) {
                     return;
                 }

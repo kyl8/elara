@@ -6,6 +6,7 @@ import net.minecraft.client.gui.screen.ChatScreen;
 import org.elaramc.client.config.ElaraSettings;
 import org.elaramc.client.config.ElaraSettings.Palette;
 import org.elaramc.client.config.SettingsStore;
+import org.elaramc.client.input.PathWalker;
 import org.elaramc.client.search.WorldSearch;
 
 public final class SearchHud {
@@ -14,10 +15,12 @@ public final class SearchHud {
 
     private final WorldSearch search;
     private final SettingsStore settings;
+    private final PathWalker walker;
 
-    public SearchHud(WorldSearch search, SettingsStore settings) {
+    public SearchHud(WorldSearch search, SettingsStore settings, PathWalker walker) {
         this.search = search;
         this.settings = settings;
+        this.walker = walker;
     }
 
     public void render(DrawContext draw, float tickDelta) {
@@ -32,10 +35,12 @@ public final class SearchHud {
         var colors = settings.palette();
         int width = draw.getScaledWindowWidth();
         int height = draw.getScaledWindowHeight();
+        boolean travel = walker.hasTravelTime();
+        int panelHeight = travel ? HEIGHT + 13 : HEIGHT;
         int marginX = Math.min(options.hudMarginX, width / 8);
         int marginY = Math.min(options.hudMarginY, height / 8);
         double scale = Math.min(options.hudScale, Math.min((width - 2.0 * marginX) / WIDTH,
-            (height - 2.0 * marginY) / HEIGHT));
+            (height - 2.0 * marginY) / panelHeight));
         boolean right = options.hudCorner == ElaraSettings.Corner.TOP_RIGHT
             || options.hudCorner == ElaraSettings.Corner.BOTTOM_RIGHT;
         boolean bottom = options.hudCorner == ElaraSettings.Corner.BOTTOM_LEFT
@@ -43,18 +48,22 @@ public final class SearchHud {
         var matrix = draw.getMatrices();
         matrix.push();
         matrix.translate(right ? width - marginX - WIDTH * scale : marginX,
-            bottom ? height - marginY - HEIGHT * scale : marginY, 0);
+            bottom ? height - marginY - panelHeight * scale : marginY, 0);
         matrix.scale((float) scale, (float) scale, 1);
 
         var font = client.textRenderer;
         int accent = phaseColor(colors, search.phase());
-        draw.fill(0, 0, WIDTH, HEIGHT, Palette.alpha(colors.obsidian(), 247));
-        draw.fill(0, 0, 2, HEIGHT, accent);
+        if (walker.walking()) {
+            accent = colors.iceBlue();
+        }
+        draw.fill(0, 0, WIDTH, panelHeight, Palette.alpha(colors.obsidian(), 247));
+        draw.fill(0, 0, 2, panelHeight, accent);
         draw.drawText(font, "Elara", 9, 8, colors.pearl(), false);
         String algorithm = search.algorithm().name();
         draw.drawText(font, algorithm, WIDTH - 9 - font.getWidth(algorithm), 8, colors.lavender(), false);
 
-        draw.drawText(font, routeState(search), 9, 21, accent, false);
+        String status = walker.walking() ? "Caminhando" : walker.arrived() ? "Destino alcançado" : routeState(search);
+        draw.drawText(font, status, 9, 21, accent, false);
         var metrics = search.metrics();
         if (metrics == null) {
             draw.drawText(font, "F6 para abrir a rota", 9, 34, colors.pearl(), false);
@@ -64,6 +73,11 @@ public final class SearchHud {
             draw.drawText(font, count, 9, 34, colors.pearl(), false);
             String time = search.elapsedLabel();
             draw.drawText(font, time, WIDTH - 9 - font.getWidth(time), 34, colors.pearl(), false);
+        }
+        if (travel) {
+            String time = walker.travelLabel();
+            draw.drawText(font, "Caminhada", 9, 47, accent, false);
+            draw.drawText(font, time, WIDTH - 9 - font.getWidth(time), 47, colors.pearl(), false);
         }
         matrix.pop();
     }

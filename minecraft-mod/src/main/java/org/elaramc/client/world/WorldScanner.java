@@ -1,5 +1,6 @@
 package org.elaramc.client.world;
 
+import net.minecraft.block.LadderBlock;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
@@ -11,20 +12,23 @@ import org.elaramc.search.GridPosition;
 import org.elaramc.search.SearchRegion;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.List;
+import java.util.HashSet;
 
-/** Takes a flat snapshot from already loaded block collision data. */
+/** Takes a snapshot from already loaded block collision data. */
 public final class WorldScanner {
     public static final int MAX_SIDE = 64;
     public static final int MAX_STATES = MAX_SIDE * MAX_SIDE;
+    private static final int HEIGHT_MARGIN = 6;
+    private static final int MAX_SCAN_VOLUME = 196_608;
+    public static final double STEP_HEIGHT = 0.6;
+    private static final double JUMP_RISE = 1.25;
 
     private static final double HALF_WIDTH = 0.3;
     private static final double PLAYER_HEIGHT = 1.8;
-    private static final double CARPET_HEIGHT = 1.0 / 16;
     private static final double EPSILON = 1.0e-6;
-    private static final List<Direction> FORWARD_EDGES = List.of(Direction.EAST, Direction.SOUTH);
 
     public static final class UnloadedRegionException extends IllegalArgumentException {
         private UnloadedRegionException(int x, int z) {
@@ -36,9 +40,15 @@ public final class WorldScanner {
     public SearchRegion automaticRegion(CollisionView world, GridPosition start, GridPosition goal,
                                         int maxSide, int maxStates) {
         var region = new SearchRegion(Math.min(start.x(), goal.x()), Math.min(start.z(), goal.z()),
-            Math.max(start.x(), goal.x()), Math.max(start.z(), goal.z()), start.y());
-        requireSize(region, maxSide);
+            Math.max(start.x(), goal.x()), Math.max(start.z(), goal.z()),
+            Math.min(start.y(), goal.y()), Math.max(start.y(), goal.y()));
         requireAvailableRegion(world, region);
+        requireSize(region, maxSide);
+        int low = Math.max(world.getBottomY() + 1, region.y() - HEIGHT_MARGIN);
+        int high = Math.min(world.getTopY() - 3, region.maxY() + HEIGHT_MARGIN);
+        if (region.width() * region.depth() * (high - low + 1L) <= MAX_SCAN_VOLUME) {
+            region = new SearchRegion(region.minX(), region.minZ(), region.maxX(), region.maxZ(), low, high);
+        }
         while (true) {
             SearchRegion previous = region;
             region = extend(world, region, -1, 0, 0, 0, maxSide, maxStates);
@@ -54,9 +64,10 @@ public final class WorldScanner {
     private static SearchRegion extend(CollisionView world, SearchRegion region,
                                        int west, int north, int east, int south, int maxSide, int maxStates) {
         var candidate = new SearchRegion(region.minX() + west, region.minZ() + north, region.maxX() + east,
-            region.maxZ() + south, region.y());
+            region.maxZ() + south, region.y(), region.maxY());
         if (candidate.width() > maxSide || candidate.depth() > maxSide
-            || candidate.width() * candidate.depth() > maxStates) {
+            || candidate.width() * candidate.depth() > maxStates
+            || candidate.width() * candidate.depth() * candidate.height() > MAX_SCAN_VOLUME) {
             return region;
         }
         try {
@@ -79,18 +90,32 @@ public final class WorldScanner {
         requireAvailableRegion(world, region);
 
         var heights = new HashMap<GridPosition, Double>();
+        var ladders = new HashSet<GridPosition>();
+        double[] surfaces = new double[(int) region.height()];
         for (int dz = 0; dz < region.depth(); dz++) {
             for (int dx = 0; dx < region.width(); dx++) {
-                var position = new GridPosition(region.minX() + dx, region.y(), region.minZ() + dz);
-                double x = position.x() + 0.5;
-                double z = position.z() + 0.5;
-                double surface = findSurface(world, x, z, position.y());
-                if (!Double.isNaN(surface) && isClear(world, bodyAt(x, z, surface))) {
-                    if (heights.size() == maxStates) {
-                        throw new IllegalArgumentException("Limite de estados transitáveis excedido (" + maxStates + ").");
+                int x = region.minX() + dx;
+                int z = region.minZ() + dz;
+                columnSurfaces(world, x + 0.5, z + 0.5, region, surfaces);
+                for (int index = 0; index < surfaces.length; index++) {
+                    int y = region.y() + index;
+                    boolean ladder = region.height() > 1 && world.getBlockState(new BlockPos(x, y, z)).getBlock() instanceof LadderBlock;
+                    double surface = surfaces[index];
+                    if (ladder && Double.isNaN(surface)) {
+                        surface = y;
                     }
-                    graph.addState(position);
-                    heights.put(position, surface);
+                    if (!Double.isNaN(surface) && isClear(world, bodyAt(x + 0.5, z + 0.5, surface))) {
+                        if (heights.size() == maxStates) {
+                            throw new IllegalArgumentException("Limite de estados transitáveis excedido (" + maxStates
+                                + "). Reduza a região ou use /elara limits.");
+                        }
+                        var position = new GridPosition(x, y, z);
+                        graph.addState(position);
+                        heights.put(position, surface);
+                        if (ladder) {
+                            ladders.add(position);
+                        }
+                    }
                 }
             }
         }
@@ -101,13 +126,15 @@ public final class WorldScanner {
             throw new IllegalArgumentException("Meta em posição bloqueada ou sem apoio em " + goal.coordinates());
         }
 
+        var directions = GridGraph.directions(region);
         for (var entry : heights.entrySet()) {
             GridPosition from = entry.getKey();
-            for (Direction direction : FORWARD_EDGES) {
+            for (Direction direction : directions) {
                 GridPosition to = direction.from(from);
                 Double targetHeight = heights.get(to);
-                if (targetHeight != null && canCross(world, from, to, Math.max(entry.getValue(), targetHeight))) {
-                    graph.connect(from, to);
+                if (targetHeight != null && canCross(world, direction, from, to, entry.getValue(),
+                    targetHeight, ladders.contains(from) || ladders.contains(to))) {
+                    graph.connectFrom(from, direction);
                 }
             }
         }
@@ -119,6 +146,9 @@ public final class WorldScanner {
         if (region.width() > maxSide || region.depth() > maxSide) {
             throw new IllegalArgumentException("Os pontos precisam caber em uma região de " + maxSide + " blocos por lado.");
         }
+        if (region.width() * region.depth() * region.height() > MAX_SCAN_VOLUME) {
+            throw new IllegalArgumentException("A região entre os pontos é grande demais. Divida o caminho em trechos.");
+        }
     }
 
     private static void requireInRegion(SearchRegion region, GridPosition position, String label) {
@@ -129,8 +159,8 @@ public final class WorldScanner {
     }
 
     private static void requireAvailableRegion(CollisionView world, SearchRegion region) {
-        if (region.y() <= world.getBottomY() || region.y() > world.getTopY() - 2) {
-            throw new IllegalArgumentException("O piso precisa de um bloco abaixo e dois blocos de altura livre.");
+        if (region.y() <= world.getBottomY() || region.maxY() > world.getTopY() - 2) {
+            throw new IllegalArgumentException("Escolha pontos com apoio e espaço para o jogador.");
         }
         WorldBorder border = world.getWorldBorder();
         if (region.minX() + 0.5 - HALF_WIDTH < border.getBoundWest()
@@ -154,42 +184,60 @@ public final class WorldScanner {
         }
     }
 
-    private static double findSurface(CollisionView world, double x, double z, int floor) {
-        Box supportProbe = new Box(x - HALF_WIDTH, floor - EPSILON, z - HALF_WIDTH,
-            x + HALF_WIDTH, floor + CARPET_HEIGHT + EPSILON, z + HALF_WIDTH);
-        double highest = Double.NEGATIVE_INFINITY;
+    private static void columnSurfaces(CollisionView world, double x, double z, SearchRegion region, double[] surfaces) {
+        Arrays.fill(surfaces, Double.NaN);
+        Box supportProbe = new Box(x - HALF_WIDTH, region.y() - EPSILON, z - HALF_WIDTH,
+            x + HALF_WIDTH, region.maxY() + 1.0, z + HALF_WIDTH);
         for (var shape : world.getBlockCollisions(null, supportProbe)) {
             for (Box part : shape.getBoundingBoxes()) {
-                if (isFloorTop(part, floor) && containsCoordinate(x, part.minX, part.maxX)
-                    && containsCoordinate(z, part.minZ, part.maxZ)) {
-                    highest = Math.max(highest, part.maxY);
+                int index = MathHelper.floor(part.maxY + EPSILON) - region.y();
+                if (index >= 0 && index < surfaces.length && containsCoordinate(x, part.minX, part.maxX)
+                    && containsCoordinate(z, part.minZ, part.maxZ)
+                    && (Double.isNaN(surfaces[index]) || part.maxY > surfaces[index])) {
+                    surfaces[index] = part.maxY;
                 }
             }
         }
-        return highest == Double.NEGATIVE_INFINITY ? Double.NaN : highest;
     }
 
-    private static boolean canCross(CollisionView world, GridPosition from, GridPosition to, double surface) {
+    private static boolean canCross(CollisionView world, Direction direction, GridPosition from, GridPosition to,
+                                    double fromHeight, double toHeight, boolean ladder) {
         double fromX = from.x() + 0.5;
         double fromZ = from.z() + 0.5;
         double toX = to.x() + 0.5;
         double toZ = to.z() + 0.5;
-        Box sweep = bodyAt(fromX, fromZ, surface).union(bodyAt(toX, toZ, surface));
+        double higher = Math.max(fromHeight, toHeight);
+        Box sweep = bodyAt(fromX, fromZ, higher).union(bodyAt(toX, toZ, higher));
+        if (direction.vertical()) {
+            return ladder && isClear(world, bodyAt(fromX, fromZ, fromHeight).union(bodyAt(toX, toZ, toHeight)));
+        }
         if (!isClear(world, sweep)) {
             return false;
         }
+        double rise = toHeight - fromHeight;
+        if (rise > STEP_HEIGHT) {
+            if (rise > 1.0 + EPSILON) {
+                return false;
+            }
+            // Reserve space for the jump above the lower block and through the upper landing.
+            double ceiling = fromHeight + JUMP_RISE + PLAYER_HEIGHT;
+            return isClear(world, new Box(sweep.minX, sweep.minY, sweep.minZ, sweep.maxX, ceiling, sweep.maxZ));
+        }
+        if (rise < -STEP_HEIGHT || ladder) {
+            return rise >= -1.0 - EPSILON;
+        }
 
-        int floor = from.y();
-        Box supportProbe = new Box(sweep.minX, floor - EPSILON, sweep.minZ, sweep.maxX,
-            floor + CARPET_HEIGHT + EPSILON, sweep.maxZ);
+        double lower = Math.min(fromHeight, toHeight);
+        Box supportProbe = new Box(sweep.minX, lower - EPSILON, sweep.minZ, sweep.maxX,
+            higher + EPSILON, sweep.maxZ);
         boolean alongX = from.x() != to.x();
         double fixed = alongX ? fromZ : fromX;
-        double covered = alongX ? fromX : fromZ;
-        double end = alongX ? toX : toZ;
+        double covered = alongX ? Math.min(fromX, toX) : Math.min(fromZ, toZ);
+        double end = alongX ? Math.max(fromX, toX) : Math.max(fromZ, toZ);
         var intervals = new ArrayList<Box>();
         for (var shape : world.getBlockCollisions(null, supportProbe)) {
             for (Box part : shape.getBoundingBoxes()) {
-                if (isFloorTop(part, floor) && (alongX ? containsCoordinate(fixed, part.minZ, part.maxZ)
+                if (containsCoordinate(part.maxY, lower, higher) && (alongX ? containsCoordinate(fixed, part.minZ, part.maxZ)
                     : containsCoordinate(fixed, part.minX, part.maxX))) {
                     intervals.add(part);
                 }
@@ -206,10 +254,6 @@ public final class WorldScanner {
             }
         }
         return false;
-    }
-
-    private static boolean isFloorTop(Box part, int floor) {
-        return containsCoordinate(part.maxY, floor, floor + CARPET_HEIGHT);
     }
 
     private static boolean containsCoordinate(double value, double min, double max) {

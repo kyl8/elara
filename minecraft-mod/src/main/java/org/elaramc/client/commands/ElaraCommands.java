@@ -70,7 +70,9 @@ public final class ElaraCommands {
         dispatcher.register(literal("elara")
             .executes(context -> ElaraHelp.overview(context.getSource(), settings))
             .then(ElaraHelp.command(settings))
-            .then(coordinates(action("start", search::startQuick), "Início", search::selectStart))
+            .then(coordinates(action("start", () -> walker.startOrSearch(MinecraftClient.getInstance())),
+                "Início", search::selectStart)
+                .then(action("walk", () -> walker.findRoute(MinecraftClient.getInstance()))))
             .then(endpoint("origin", "Início", search::selectStart))
             .then(endpoint("finish", "Chegada", search::selectGoal))
             .then(selection("goal", "Meta", search::selectGoal))
@@ -125,7 +127,8 @@ public final class ElaraCommands {
             .then(action("pause", search::pause))
             .then(action("resume", search::resume))
             .then(action("reset", search::reset))
-            .then(action("status", search::status))
+            .then(action("status", () -> search.status()
+                + (walker.hasTravelTime() ? " | Caminhada " + walker.travelLabel() : "")))
             .then(action("path", () -> search.path(1)).then(argument("page", integer(1))
                 .executes(context -> reply(context, () -> search.path(getInteger(context, "page")))))));
     }

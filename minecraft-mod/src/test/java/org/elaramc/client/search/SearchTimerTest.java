@@ -25,6 +25,8 @@ class SearchTimerTest {
         now.addAndGet(320_000_000L);
         timer.stop();
         assertEquals(6, timer.tenths());
+        now.addAndGet(900_000_000L);
+        assertEquals("610 ms", timer.label());
     }
 
     @Test

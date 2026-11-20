@@ -2,32 +2,32 @@ package org.elaramc.client.search;
 
 import java.util.function.LongSupplier;
 
-/** Measures active search time with a monotonic clock. */
-final class SearchTimer {
+/** Measures active time with a monotonic clock. */
+public final class SearchTimer {
     private final LongSupplier now;
     private long startedAt;
     private long elapsed;
     private boolean running;
 
-    SearchTimer(LongSupplier now) {
+    public SearchTimer(LongSupplier now) {
         this.now = now;
     }
 
-    void start() {
+    public void start() {
         if (!running) {
             startedAt = now.getAsLong();
             running = true;
         }
     }
 
-    void stop() {
+    public void stop() {
         if (running) {
             elapsed += now.getAsLong() - startedAt;
             running = false;
         }
     }
 
-    void reset() {
+    public void reset() {
         running = false;
         elapsed = 0;
     }
@@ -39,5 +39,14 @@ final class SearchTimer {
     long milliseconds() {
         long nanos = running ? elapsed + now.getAsLong() - startedAt : elapsed;
         return nanos / 1_000_000;
+    }
+
+    public String label() {
+        long millis = milliseconds();
+        if (millis < 1000) {
+            return millis == 0 ? "<1 ms" : millis + " ms";
+        }
+        long tenths = millis / 100;
+        return tenths / 10 + "," + tenths % 10 + " s";
     }
 }

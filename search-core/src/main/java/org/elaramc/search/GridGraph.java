@@ -3,6 +3,7 @@ package org.elaramc.search;
 import java.util.HashMap;
 import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.nio.ByteBuffer;
@@ -31,6 +32,14 @@ public final class GridGraph {
         return edges.size();
     }
 
+    public List<Direction> directions() {
+        return directions(region);
+    }
+
+    public static List<Direction> directions(SearchRegion region) {
+        return region.height() == 1 ? Direction.HORIZONTAL : Direction.ORDER;
+    }
+
     public boolean contains(GridPosition state) {
         return edges.containsKey(state);
     }
@@ -39,15 +48,16 @@ public final class GridGraph {
     public String fingerprint() {
         try {
             MessageDigest checksum = MessageDigest.getInstance("SHA-256");
-            ByteBuffer bounds = ByteBuffer.allocate(20);
+            ByteBuffer bounds = ByteBuffer.allocate(24);
             bounds.putInt(region.minX()).putInt(region.minZ()).putInt(region.maxX()).putInt(region.maxZ())
-                .putInt(region.y());
+                .putInt(region.y()).putInt(region.maxY());
             checksum.update(bounds.array());
-            ByteBuffer cell = ByteBuffer.allocate(9);
-            edges.keySet().stream().sorted(Comparator.comparingInt(GridPosition::z).thenComparingInt(GridPosition::x))
+            ByteBuffer cell = ByteBuffer.allocate(16);
+            edges.keySet().stream().sorted(Comparator.comparingInt(GridPosition::y)
+                    .thenComparingInt(GridPosition::z).thenComparingInt(GridPosition::x))
                 .forEach(position -> {
                     cell.clear();
-                    cell.putInt(position.x()).putInt(position.z()).put(edges.get(position).byteValue());
+                    cell.putInt(position.x()).putInt(position.y()).putInt(position.z()).putInt(edges.get(position));
                     checksum.update(cell.array());
                 });
             return HexFormat.of().formatHex(checksum.digest());
@@ -114,19 +124,32 @@ public final class GridGraph {
 
         /** Adds a unit-cost edge in both directions after both states have been added. */
         public Builder connect(GridPosition first, GridPosition second) {
-            Integer firstMask = edges.get(first);
-            Integer secondMask = edges.get(second);
-            if (firstMask == null || secondMask == null) {
+            if (!edges.containsKey(first) || !edges.containsKey(second)) {
                 throw new IllegalArgumentException("Both endpoints must be graph states");
             }
-            for (Direction direction : Direction.ORDER) {
+            for (Direction direction : directions(region)) {
                 if (second.equals(direction.from(first))) {
-                    edges.put(first, firstMask | direction.bit());
-                    edges.put(second, secondMask | direction.opposite().bit());
+                    connectFrom(first, direction);
+                    for (Direction reverse : directions(region)) {
+                        if (first.equals(reverse.from(second))) {
+                            connectFrom(second, reverse);
+                            break;
+                        }
+                    }
                     return this;
                 }
             }
             throw new IllegalArgumentException("Endpoints must be cardinal neighbors");
+        }
+
+        /** Adds a directed movement without assuming its reverse is physically possible. */
+        public Builder connectFrom(GridPosition from, Direction direction) {
+            var mask = edges.get(from);
+            if (mask == null || !edges.containsKey(direction.from(from))) {
+                throw new IllegalArgumentException("Both endpoints must be graph states");
+            }
+            edges.put(from, mask | direction.bit());
+            return this;
         }
 
         public GridGraph build() {

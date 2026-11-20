@@ -136,6 +136,37 @@ class WorldScannerTest {
     }
 
     @Test
+    void bothSearchesTraverseAnAscentAndDescentInTheAutomaticRegion() {
+        var world = new Fixture();
+        world.floor(0, 2);
+        world.put(1, 64, Blocks.STONE.getDefaultState());
+        world.put(3, 64, Blocks.STONE.getDefaultState());
+        var origin = cell(0);
+        var goal = new GridPosition(3, 65, 0);
+        var region = scanner.automaticRegion(world, origin, goal, 8, 64);
+        var graph = scanner.scan(world, region, origin, goal, 8, 64).graph();
+        var expected = List.of(origin, new GridPosition(1, 65, 0), cell(2), goal);
+        for (var algorithm : SearchAlgorithm.values()) {
+            var session = new SearchSession(graph, origin, goal, algorithm);
+            assertEquals(SearchStatus.FOUND, session.runToCompletion(event -> {}));
+            assertEquals(expected, session.path());
+        }
+    }
+
+    @Test
+    void overheadBlockCanPreventAJumpWhileAllowingTheReverseDrop() {
+        var world = new Fixture();
+        world.floor(0);
+        world.put(1, 64, Blocks.STONE.getDefaultState());
+        world.put(0, 67, Blocks.STONE.getDefaultState());
+        var lower = cell(0);
+        var upper = new GridPosition(1, 65, 0);
+        var graph = scanner.scan(world, new SearchRegion(0, 0, 1, 0, 64, 65), lower, upper, 8, 64).graph();
+        assertEquals(GridGraph.MoveStatus.BLOCKED_TRANSITION, graph.transition(lower, Direction.EAST_UP).status());
+        assertEquals(GridGraph.MoveStatus.OPEN, graph.transition(upper, Direction.WEST_DOWN).status());
+    }
+
+    @Test
     void rejectsBadBoundsAndStopsAtTheStateLimit() {
         var world = new Fixture();
         world.floor(0, 1);

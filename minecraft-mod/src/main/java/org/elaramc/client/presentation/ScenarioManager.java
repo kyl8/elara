@@ -54,6 +54,11 @@ public final class ScenarioManager {
         return active != null && activeGraph == search.graph() ? active.exit() : null;
     }
 
+    public Scenario exitScenario(MinecraftClient client) {
+        Scenario exit = store.get("level0-exit");
+        return matchesWorld(client, exit) ? exit : null;
+    }
+
     public String load(MinecraftClient client, String name, SearchAlgorithm override) {
         Scenario scene = store.get(name);
         if (!matchesWorld(client, scene)) {

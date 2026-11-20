@@ -28,7 +28,8 @@ final class ElaraHelp {
             new Entry("limits <lado> <estados>", "limits ", "Ajusta os limites."),
             new Entry("scan", "scan", "Analisa as colisões e cria o grafo."))),
         new Group("search", "Executar a busca", List.of(
-            new Entry("start", "start", "Busca com o algoritmo selecionado."),
+            new Entry("start", "start", "Busca a rota e caminha da sua posição no modo solo."),
+            new Entry("start walk", "start walk", "Atalho para buscar e caminhar no modo solo."),
             new Entry("algorithm <bfs|dfs>", "algorithm ", "BFS acha a menor rota. DFS explora em profundidade."),
             new Entry("mode <step|animated|instant>", "mode ", "Escolhe o modo."),
             new Entry("speed <taxa>", "speed ", "Define as expansões por segundo."),
@@ -37,7 +38,7 @@ final class ElaraHelp {
             new Entry("resume", "resume", "Retoma a busca."),
             new Entry("step", "step", "Expande um estado."),
             new Entry("reset", "reset", "Limpa a busca e o cronômetro."),
-            new Entry("status", "status", "Mostra as métricas e o tempo."),
+            new Entry("status", "status", "Mostra as métricas da busca."),
             new Entry("path [página]", "path", "Lista as coordenadas da rota."))),
         new Group("scenarios", "Cenários e caminhada", List.of(
             new Entry("scenario list", "scenario list", "Lista os cenários."),
@@ -45,8 +46,8 @@ final class ElaraHelp {
             new Entry("scenario load <nome> [bfs|dfs]", "scenario load ", "Carrega um cenário."),
             new Entry("replay", "replay", "Recomeça no cenário ativo."),
             new Entry("replay loop <segundos>", "replay loop ", "Repete a busca após o intervalo. Zero desativa."),
-            new Entry("walk [start|stop]", "walk", "Segue o caminho encontrado no modo solo."),
-            new Entry("exit [bfs|dfs]", "exit", "Busca e percorre a saída do Nível 0."))),
+            new Entry("walk [start|stop]", "walk", "Segue a rota da sua posição ou cancela a caminhada."),
+            new Entry("exit [bfs|dfs]", "exit", "Vai até a saída do mapa ou a chegada marcada."))),
         new Group("display", "Tela, ajustes e ajuda", List.of(
             new Entry("hud", "hud", "Alterna o HUD."),
             new Entry("overlay", "overlay", "Alterna as marcas 3D."),
@@ -67,9 +68,9 @@ final class ElaraHelp {
     static int overview(FabricClientCommandSource source, SettingsStore settings) {
         var colors = settings.palette();
         source.sendFeedback(Text.empty().append(ElaraChat.info(colors, "Sua primeira rota"))
-            .append("\n").append(ElaraChat.help(colors, "origin", "origin", "Marque o início onde está."))
-            .append("\n").append(ElaraChat.help(colors, "finish", "finish", "Vá até a chegada e marque."))
-            .append("\n").append(ElaraChat.help(colors, "start", "start", "Busque com o algoritmo ativo."))
+            .append("\n").append(ElaraChat.help(colors, "finish", "finish", "Marque a chegada. Use finish look para mirar."))
+            .append("\n").append(ElaraChat.help(colors, "start", "start", "Siga a rota da posição atual no modo solo."))
+            .append("\n").append(ElaraChat.help(colors, "origin", "origin", "Marque um início fixo para buscar pelo F6."))
             .append("\n\n").append(category(settings, "Seleção", "setup")).append("    ")
             .append(category(settings, "Busca", "search")).append("    ")
             .append(category(settings, "Cenários", "scenarios")).append("    ")

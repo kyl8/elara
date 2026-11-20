@@ -51,7 +51,7 @@ public final class ElaraClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(search::tick);
         ClientTickEvents.END_CLIENT_TICK.register(walker::tick);
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> sync.close());
-        HudRenderCallback.EVENT.register(new SearchHud(search, settings)::render);
+        HudRenderCallback.EVENT.register(new SearchHud(search, settings, walker)::render);
         WorldRenderEvents.LAST.register(new WorldOverlay(search, settings)::render);
         LOGGER.info("Elara initialized");
     }

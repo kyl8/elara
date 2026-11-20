@@ -6,39 +6,46 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.input.Input;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
-import org.elaramc.client.ElaraChat;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
-import org.elaramc.client.config.PlayMode;
+import org.elaramc.client.ElaraChat;
 import org.elaramc.client.config.SettingsStore;
 import org.elaramc.client.presentation.Scenario;
 import org.elaramc.client.presentation.ScenarioManager;
+import org.elaramc.client.search.SearchTimer;
 import org.elaramc.client.search.WorldSearch;
-import org.elaramc.search.GridGraph;
+import org.elaramc.client.world.WorldScanner;
 import org.elaramc.search.GridPosition;
 import org.elaramc.search.SearchAlgorithm;
+import org.elaramc.search.SearchRegion;
 import org.elaramc.search.SearchSession;
 import org.elaramc.search.SearchStatus;
 
 import java.util.List;
 
-/** Drives normal local player input along a completed path. All movement uses Minecraft physics. */
+/** Drives normal local player input along a path and yields to manual input. */
 public final class PathWalker {
+    private static final int SETTLE_TICKS = 5;
     private final WorldSearch search;
     private final SettingsStore settings;
     private final ScenarioManager scenarios;
+    private final SearchTimer travelTime = new SearchTimer(System::nanoTime);
     private ClientPlayerEntity player;
     private ClientWorld world;
-    private SearchSession session;
     private GuidedInput input;
-    private List<GridPosition> path;
+    private SearchSession session;
+    private SearchSession timedSession;
+    private GridPosition destination;
+    private SearchAlgorithm algorithm;
+    private SearchRegion preferredRegion;
     private Scenario.Exit exit;
+    private List<GridPosition> path;
     private int waypoint;
     private int ticksAtWaypoint;
+    private boolean planning;
     private boolean exiting;
-    private boolean exitRequested;
-    private GridGraph previousGraph;
-    private SearchSession exitSearch;
+    private boolean arrived;
+    private int settleTicks;
 
     public PathWalker(WorldSearch search, SettingsStore settings, ScenarioManager scenarios) {
         this.search = search;
@@ -46,161 +53,228 @@ public final class PathWalker {
         this.scenarios = scenarios;
     }
 
-    public String findExit(MinecraftClient client, SearchAlgorithm algorithm) {
+    public String startOrSearch(MinecraftClient client) {
+        return client.getServer() == null ? search.startQuick() : findRoute(client);
+    }
+
+    public String findRoute(MinecraftClient client) {
+        return begin(client, search.goal(), search.algorithm(), null, scenarios.activeExit());
+    }
+
+    public String findExit(MinecraftClient client, SearchAlgorithm selected) {
         requireLocalPlayer(client);
-        String loading = scenarios.load(client, "level0-exit", algorithm);
-        restoreInput();
-        previousGraph = search.graph();
-        exitRequested = true;
-        exitSearch = null;
-        return loading + " | O jogador caminhará até a saída após a busca.";
+        var scene = scenarios.exitScenario(client);
+        if (scene == null) {
+            return begin(client, search.goal(), selected, null, null);
+        }
+        return begin(client, scene.goal(), selected, scene.region(), scene.exit());
     }
 
     public String toggle(MinecraftClient client) {
-        if (input != null || exitRequested || exitSearch != null) {
-            return stop();
-        }
-        return start(client);
+        return input == null ? start(client) : stop();
     }
 
     public String start(MinecraftClient client) {
+        if (search.session() == null || search.session().status() != SearchStatus.FOUND) {
+            throw new IllegalStateException("Encontre um caminho com /elara start primeiro.");
+        }
+        return findRoute(client);
+    }
+
+    private String begin(MinecraftClient client, GridPosition goal, SearchAlgorithm selected,
+                         SearchRegion preferred, Scenario.Exit transition) {
         requireLocalPlayer(client);
-        if (input != null) {
-            throw new IllegalStateException("O jogador já está seguindo um caminho.");
+        if (goal == null) {
+            throw new IllegalStateException("Marque a chegada com /elara finish.");
         }
-        SearchSession result = search.session();
-        if (result == null || result.status() != SearchStatus.FOUND) {
-            throw new IllegalStateException("Encontre um caminho e depois use /elara walk.");
-        }
-        ClientPlayerEntity candidate = client.player;
-        GridPosition origin = result.path().get(0);
-        if (horizontalDistance(candidate, origin) > 0.75 || Math.abs(candidate.getY() - origin.y()) > 0.45) {
-            throw new IllegalStateException("Fique no início da rota " + origin.coordinates() + ".");
-        }
-        Scenario.Exit selectedExit = scenarios.activeExit();
-        if (selectedExit != null) {
-            var mcGoal = block(result.path().get(result.path().size() - 1));
-            if (!(client.world.getBlockState(mcGoal).getBlock() instanceof LadderBlock)
-                || !(client.world.getBlockState(block(selectedExit.plate())).getBlock() instanceof AbstractPressurePlateBlock)) {
-                throw new IllegalStateException("A escada ou a placa da saída não foi encontrada no mapa.");
-            }
-        }
-        player = candidate;
+        restoreInput();
+        destination = goal;
+        algorithm = selected;
+        preferredRegion = preferred;
+        exit = transition;
+        player = client.player;
         world = client.world;
-        session = result;
-        path = result.path();
-        exit = selectedExit;
+        travelTime.reset();
+        timedSession = null;
+        arrived = false;
+
+        try {
+            planFrom(feet());
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            restoreInput();
+            throw exception;
+        }
         input = new GuidedInput(player.input);
         player.input = input;
         player.setSprinting(false);
-        waypoint = 0;
-        ticksAtWaypoint = 0;
-        exiting = false;
-        return "Caminhando " + (path.size() - 1) + " passos | Use uma tecla de movimento ou /elara walk stop para parar.";
+        return planning ? "Buscando a rota da sua posição atual." : "Caminhando pela rota já encontrada.";
     }
 
     public String stop() {
+        boolean active = input != null;
         restoreInput();
-        exitRequested = false;
-        exitSearch = null;
-        return "Caminhada encerrada.";
+        return active && timedSession != null ? "Caminhada encerrada. Tempo: " + travelTime.label() + "."
+            : "Caminhada encerrada.";
     }
 
     private void restoreInput() {
-        if (player != null && player.input == input) {
+        travelTime.stop();
+        if (input != null && player != null && player.input == input) {
             player.input = input.delegate;
         }
         player = null;
         input = null;
         session = null;
-        path = null;
         world = null;
+        path = null;
         exit = null;
+        preferredRegion = null;
+        destination = null;
+        algorithm = null;
+        settleTicks = 0;
+        planning = false;
+        exiting = false;
+    }
+
+    private void planFrom(GridPosition position) {
+        var cached = search.session();
+        if (cached != null && cached.status() == SearchStatus.FOUND && destination.equals(search.goal())
+            && algorithm == search.algorithm()) {
+            int first = cached.path().indexOf(position);
+            if (first >= 0) {
+                follow(cached, first);
+                return;
+            }
+        }
+        session = search.routeFrom(position, destination, algorithm, preferredRegion);
+        planning = true;
+        path = null;
+    }
+
+    private void follow(SearchSession route, int first) {
+        session = route;
+        timedSession = route;
+        path = route.path();
+        waypoint = first;
+        ticksAtWaypoint = 0;
+        planning = false;
+        exiting = false;
     }
 
     public void tick(MinecraftClient client) {
-        if (client.player == null || client.getServer() == null) {
-            stop();
+        if (input == null) {
+            if (!hasTravelTime()) {
+                timedSession = null;
+            }
             return;
         }
-        if (exitRequested && !scenarios.loading()) {
-            exitRequested = false;
-            if (scenarios.activeExit() != null && search.graph() != previousGraph) {
-                try {
-                    if (settings.current().mode == PlayMode.STEP) {
-                        search.editSettings(options -> options.mode = PlayMode.ANIMATED);
-                    }
-                    chat(client, search.run());
-                    exitSearch = search.session();
-                } catch (IllegalArgumentException | IllegalStateException exception) {
-                    client.player.sendMessage(ElaraChat.warning(settings.palette(), exception.getMessage()), false);
+        if (player != client.player || world != client.world || player.input != input) {
+            restoreInput();
+            timedSession = null;
+            return;
+        }
+        if (session != search.session() || session.status() == SearchStatus.READY) {
+            finish(client, "Caminhada interrompida.", false);
+            return;
+        }
+
+        input.forward = 0;
+        input.jump = false;
+        if (client.currentScreen != null || client.isPaused()) {
+            travelTime.stop();
+            return;
+        }
+        if (input.manual) {
+            travelTime.stop();
+            settleTicks = SETTLE_TICKS;
+            return;
+        }
+        if (settleTicks > 0) {
+            if (!player.isOnGround() && !player.isClimbing() || --settleTicks > 0) {
+                return;
+            }
+            try {
+                planFrom(feet());
+                chat(client, planning ? "Recalculando a rota da sua posição." : "Continuando pela rota em cache.");
+            } catch (IllegalArgumentException | IllegalStateException exception) {
+                finish(client, exception.getMessage(), false);
+            }
+            return;
+        }
+
+        if (planning) {
+            if (session.status() == SearchStatus.EXHAUSTED) {
+                restoreInput();
+            } else if (session.status() == SearchStatus.FOUND) {
+                int index = session.path().indexOf(feet());
+                if (index >= 0) {
+                    follow(session, index);
+                } else {
+                    settleTicks = SETTLE_TICKS;
                 }
             }
-        }
-        if (exitSearch != null && (exitSearch != search.session() || exitSearch.status() == SearchStatus.READY
-            || exitSearch.status() == SearchStatus.EXHAUSTED)) {
-            exitSearch = null;
-        }
-        if (exitSearch != null && exitSearch.status() == SearchStatus.FOUND) {
-            exitSearch = null;
-            try {
-                chat(client, start(client));
-            } catch (IllegalStateException exception) {
-                client.player.sendMessage(ElaraChat.warning(settings.palette(), exception.getMessage()), false);
-            }
-        }
-        if (input == null) {
             return;
         }
-        if (player != client.player || world != client.world || session != search.session()
-            || session.status() != SearchStatus.FOUND || player.input != input || input.interrupted) {
-            finish(client, "Caminhada interrompida.");
-            return;
-        }
-        input.forward = 0;
-        input.climb = false;
-        if (client.currentScreen != null || client.isPaused()) {
-            return;
-        }
+
+        travelTime.start();
         if (exiting) {
             advanceExit(client);
             return;
         }
+        advancePath(client);
+    }
+
+    private void advancePath(MinecraftClient client) {
         GridPosition target = path.get(waypoint);
-        if (horizontalDistance(player, target) < 0.14) {
+        if (horizontalDistance(player, target) < 0.14 && Math.abs(player.getY() - search.surface(target)) < 0.18) {
             ticksAtWaypoint = 0;
-            if (++waypoint == path.size()) {
+            if (waypoint + 1 == path.size()) {
                 if (exit == null) {
-                    finish(client, "Destino alcançado em " + target.coordinates() + ".");
+                    finish(client, "Destino alcançado em " + target.coordinates() + ".", true);
+                } else if (!(world.getBlockState(block(target)).getBlock() instanceof LadderBlock)
+                    || !(world.getBlockState(block(exit.plate())).getBlock() instanceof AbstractPressurePlateBlock)) {
+                    finish(client, "A escada ou a placa da saída não foi encontrada.", false);
                 } else {
                     exiting = true;
-                    chat(client, "Escada da saída alcançada | Subindo até a placa de pressão do mapa.");
+                    chat(client, "Subindo até a placa de pressão do mapa.");
                 }
                 return;
             }
-            target = path.get(waypoint);
+            target = path.get(++waypoint);
         }
-        if (++ticksAtWaypoint > 90 || horizontalDistance(player, target) > 2.0
-            || Math.abs(player.getY() - target.y()) > 0.65) {
-            finish(client, "Rota alterada ou bloqueada perto de " + target.coordinates() + ".");
+        double targetY = search.surface(target);
+        double previousY = search.surface(path.get(Math.max(0, waypoint - 1)));
+        if (horizontalDistance(player, target) > 2.0
+            || player.getY() < Math.min(previousY, targetY) - 0.55
+            || player.getY() > Math.max(previousY, targetY) + 1.35) {
+            travelTime.stop();
+            settleTicks = SETTLE_TICKS;
             return;
         }
-        steer(target);
+        if (++ticksAtWaypoint > 90) {
+            finish(client, "Rota bloqueada perto de " + target.coordinates() + ".", false);
+            return;
+        }
+        if (horizontalDistance(player, target) >= 0.14) {
+            steer(target);
+        }
+        double rise = targetY - player.getY();
+        input.jump = (player.isClimbing() && rise > 0.02) || (player.isOnGround() && rise > WorldScanner.STEP_HEIGHT);
     }
 
     private void advanceExit(MinecraftClient client) {
         if (horizontalDistance(player, exit.landing()) <= 2.0 && Math.abs(player.getY() - exit.landing().y()) < 2.0) {
-            finish(client, "Nível 1 alcançado em " + exit.landing().coordinates() + ".");
+            finish(client, "Nível 1 alcançado em " + exit.landing().coordinates() + ".", true);
             return;
         }
         if (++ticksAtWaypoint > 240 || horizontalDistance(player, exit.plate()) > 7.0) {
-            finish(client, "A saída não acionou. Use a escada e a placa de pressão manualmente.");
+            finish(client, "A saída não acionou. Use a escada e a placa de pressão manualmente.", false);
             return;
         }
         if (horizontalDistance(player, exit.plate()) > 0.13) {
             steer(exit.plate());
         }
-        input.climb = player.isClimbing() && player.getY() < exit.plate().y();
+        input.jump = player.isClimbing() && player.getY() < exit.plate().y();
     }
 
     private void steer(GridPosition target) {
@@ -218,9 +292,25 @@ public final class PathWalker {
         }
     }
 
-    private void finish(MinecraftClient client, String message) {
+    private void finish(MinecraftClient client, String message, boolean completed) {
         restoreInput();
-        chat(client, message);
+        arrived = completed;
+        chat(client, timedSession == null ? message : message + " Tempo de caminhada: " + travelTime.label() + ".");
+    }
+
+    public boolean walking() { return input != null && !planning; }
+
+    public boolean hasTravelTime() {
+        return timedSession != null && timedSession == search.session() && timedSession.status() == SearchStatus.FOUND;
+    }
+
+    public boolean arrived() { return hasTravelTime() && arrived; }
+
+    public String travelLabel() { return travelTime.label(); }
+
+    private GridPosition feet() {
+        BlockPos block = player.getBlockPos();
+        return new GridPosition(block.getX(), block.getY(), block.getZ());
     }
 
     private static double horizontalDistance(ClientPlayerEntity player, GridPosition position) {
@@ -238,8 +328,8 @@ public final class PathWalker {
     private static final class GuidedInput extends Input {
         private final Input delegate;
         private float forward;
-        private boolean climb;
-        private boolean interrupted;
+        private boolean jump;
+        private boolean manual;
 
         private GuidedInput(Input delegate) {
             this.delegate = delegate;
@@ -248,22 +338,16 @@ public final class PathWalker {
         @Override
         public void tick(boolean slowDown, float factor) {
             delegate.tick(slowDown, factor);
-            interrupted |= delegate.movementForward != 0 || delegate.movementSideways != 0 || delegate.jumping || delegate.sneaking;
-            if (interrupted) {
-                movementForward = delegate.movementForward;
-                movementSideways = delegate.movementSideways;
-                pressingForward = delegate.pressingForward;
-                pressingBack = delegate.pressingBack;
-                pressingLeft = delegate.pressingLeft;
-                pressingRight = delegate.pressingRight;
-                jumping = delegate.jumping;
-                sneaking = delegate.sneaking;
-            } else {
-                movementForward = slowDown ? forward * factor : forward;
-                movementSideways = 0;
-                pressingForward = forward > 0;
-                jumping = climb;
-            }
+            manual = delegate.movementForward != 0 || delegate.movementSideways != 0
+                || delegate.jumping || delegate.sneaking;
+            movementForward = manual ? delegate.movementForward : (slowDown ? forward * factor : forward);
+            movementSideways = manual ? delegate.movementSideways : 0;
+            pressingForward = manual ? delegate.pressingForward : forward > 0;
+            pressingBack = manual && delegate.pressingBack;
+            pressingLeft = manual && delegate.pressingLeft;
+            pressingRight = manual && delegate.pressingRight;
+            jumping = manual ? delegate.jumping : jump;
+            sneaking = manual && delegate.sneaking;
         }
     }
 }

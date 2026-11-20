@@ -12,7 +12,6 @@ import org.elaramc.client.input.PathWalker;
 import org.elaramc.client.presentation.ScenarioManager;
 import org.elaramc.client.search.SearchTrace.Expansion;
 import org.elaramc.client.search.WorldSearch;
-import org.elaramc.search.Direction;
 import org.elaramc.search.GridGraph;
 import org.elaramc.search.GridPosition;
 import org.elaramc.search.SearchAlgorithm;
@@ -108,7 +107,7 @@ public final class InspectorScreen extends Screen {
         button(x + 2 * (third + 4), top + 119, third, "Limpar", () -> perform(search::clearPoints));
         run = button(x, top + 144, inner - 99, "Buscar rota", () -> perform(search::startQuick));
         walk = button(x + inner - 95, top + 144, 95, "Caminhar", () -> perform(() -> {
-            String message = walker.start(client);
+            String message = walker.toggle(client);
             close();
             client.player.sendMessage(ElaraChat.info(settings.palette(), message), false);
             return "";
@@ -225,7 +224,11 @@ public final class InspectorScreen extends Screen {
         boolean ready = search.start() != null && search.goal() != null;
         run.active = ready && !scenarios.loading();
         swap.active = ready;
-        walk.active = search.phase().equals("FOUND") && client.getServer() != null;
+        String walkLabel = walker.walking() ? "Parar" : "Caminhar";
+        if (!walk.getMessage().getString().equals(walkLabel)) {
+            walk.setMessage(Text.literal(walkLabel));
+        }
+        walk.active = walker.walking() || (search.phase().equals("FOUND") && client.getServer() != null);
 
         int accent = SearchHud.phaseColor(colors, search.phase());
         line(draw, SearchHud.routeState(search), x, top + 174, accent);
@@ -237,6 +240,9 @@ public final class InspectorScreen extends Screen {
             : ready ? (search.algorithm() == SearchAlgorithm.BFS ? "BFS busca o caminho mais curto." : "DFS explora em profundidade.")
             : "As marcas usam o bloco onde você está.";
         wrapped(draw, description, x, top + 189, error ? colors.champagne() : colors.pearl(), 2);
+        if (walker.hasTravelTime() && !error && panelHeight >= 224) {
+            line(draw, "Caminhada    " + walker.travelLabel(), x, top + 204, colors.iceBlue());
+        }
     }
 
     private void endpoint(DrawContext draw, String label, GridPosition point, int x, int y, int accent, Palette colors) {
@@ -319,7 +325,8 @@ public final class InspectorScreen extends Screen {
             return 0;
         }
         return switch (view) {
-            case MOVES -> expansion == null ? 0 : 5 + expansion.discovered().size() + expansion.skipped().size();
+            case MOVES -> expansion == null ? 0
+                : directions(expansion).size() + 1 + expansion.discovered().size() + expansion.skipped().size();
             case AGENDA -> search.session().agendaSize();
             case VISITED -> search.metrics().discovered();
             case PATH -> search.session().path().size();
@@ -335,9 +342,8 @@ public final class InspectorScreen extends Screen {
         switch (view) {
             case MOVES -> {
                 if (expansion != null) {
-                    for (Direction direction : Direction.values()) {
-                        var move = search.graph().transition(expansion.state().state(), direction);
-                        lines.add(directionLabel(direction) + "    " + WorldSearch.coordinates(move.target())
+                    for (var move : directions(expansion)) {
+                        lines.add(move.direction().label() + "    " + WorldSearch.coordinates(move.target())
                             + "    " + moveLabel(move.status()));
                     }
                     lines.add(expansion.discovered().size() + " novos    " + expansion.totalSkipped() + " ignorados");
@@ -345,7 +351,7 @@ public final class InspectorScreen extends Screen {
                         lines.add("+" + child.state().coordinates() + "  ←  " + child.predecessor().coordinates());
                     }
                     for (var skip : expansion.skipped()) {
-                        lines.add(directionLabel(skip.transition().direction()) + "    " + skip.source().coordinates() + "    "
+                        lines.add(skip.transition().direction().label() + "    " + skip.source().coordinates() + "    "
                             + (skip.alreadyDiscovered() ? "Já descoberto" : moveLabel(skip.transition().status())));
                     }
                 }
@@ -368,13 +374,12 @@ public final class InspectorScreen extends Screen {
         return lines;
     }
 
-    private static String directionLabel(Direction direction) {
-        return switch (direction) {
-            case NORTH -> "Norte";
-            case SOUTH -> "Sul";
-            case EAST -> "Leste";
-            case WEST -> "Oeste";
-        };
+    private List<GridGraph.Transition> directions(Expansion expansion) {
+        var graph = search.graph();
+        return graph.directions().stream()
+            .map(direction -> graph.transition(expansion.state().state(), direction))
+            .filter(move -> graph.region().height() == 1 || move.status() == GridGraph.MoveStatus.OPEN)
+            .toList();
     }
 
     private static String moveLabel(GridGraph.MoveStatus status) {
