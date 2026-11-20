@@ -110,6 +110,32 @@ class WorldScannerTest {
     }
 
     @Test
+    void automaticRegionKeepsLoadedDetoursAndRespectsTheScanBudget() {
+        var world = new Fixture();
+        world.missingWest = true;
+        var start = new GridPosition(1, 64, 0);
+        var goal = new GridPosition(3, 64, 0);
+        var region = scanner.automaticRegion(world, start, goal, 16, 144);
+        assertTrue(region.contains(start));
+        assertTrue(region.contains(goal));
+        assertEquals(1, region.minX());
+        assertTrue(region.maxZ() >= 5);
+        assertTrue(region.width() <= 16 && region.depth() <= 16);
+        assertTrue(region.width() * region.depth() <= 144);
+        assertEquals(0, world.blockReads);
+
+        for (int z = 0; z <= 5; z++) {
+            world.put(1, 63, z, Blocks.STONE.getDefaultState());
+            world.put(3, 63, z, Blocks.STONE.getDefaultState());
+        }
+        world.put(2, 63, 5, Blocks.STONE.getDefaultState());
+        var graph = scanner.scan(world, region, start, goal, 16, 144).graph();
+        var search = new SearchSession(graph, start, goal, SearchAlgorithm.BFS);
+        assertEquals(SearchStatus.FOUND, search.runToCompletion(event -> {}));
+        assertEquals(12, search.metrics().pathLength().orElseThrow());
+    }
+
+    @Test
     void rejectsBadBoundsAndStopsAtTheStateLimit() {
         var world = new Fixture();
         world.floor(0, 1);
@@ -144,7 +170,11 @@ class WorldScannerTest {
         }
 
         void put(int x, int y, BlockState state) {
-            blocks.put(new BlockPos(x, y, 0), state);
+            put(x, y, 0, state);
+        }
+
+        void put(int x, int y, int z, BlockState state) {
+            blocks.put(new BlockPos(x, y, z), state);
         }
 
         @Override

@@ -82,7 +82,7 @@ public final class ScenarioManager {
         var player = client.player;
         Scenario.Camera camera = new Scenario.Camera(player.getX(), player.getY(), player.getZ(),
             player.getYaw(), player.getPitch());
-        var scene = new Scenario(worldId(client), dimension(client), search.selectedRegion(), search.start(),
+        var scene = new Scenario(worldId(client), dimension(client), search.graph().region(), search.start(),
             search.goal(), camera, search.algorithm(), settings.current().expansionsPerSecond, activeExit());
         store.save(name, scene);
         activeGraph = search.graph();

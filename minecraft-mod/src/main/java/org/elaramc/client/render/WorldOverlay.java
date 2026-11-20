@@ -46,9 +46,11 @@ public final class WorldOverlay {
         matrices.push();
         try {
             Matrix4f matrix = matrices.peek().getPositionMatrix();
+            boolean showExploration = search.showExploration();
             geometry.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
             for (var tile : search.trace().tiles()) {
-                if (!visible(tile.position, tile.floor, camera, limit)
+                if ((!showExploration && tile.mark != org.elaramc.client.search.SearchTrace.Mark.PATH)
+                    || !visible(tile.position, tile.floor, camera, limit)
                     || frustum != null && !frustum.isVisible(tile.bounds)) {
                     continue;
                 }
@@ -61,7 +63,7 @@ public final class WorldOverlay {
                 square(matrix, tile.position, tile.floor + 0.016, inset, color);
             }
             var session = search.session();
-            if (session != null) {
+            if (showExploration && session != null) {
                 marker(matrix, session.current(), camera, limit, colors.iceBlue(), false, 0.12, 0.024);
             }
             marker(matrix, search.start(), camera, limit, colors.pearl(), false, 0.10, 0.030);
@@ -83,10 +85,10 @@ public final class WorldOverlay {
                 }
             }
             if (search.start() != null && search.start().equals(search.goal())) {
-                label(context, search.start(), "INÍCIO / META", colors.sage(), camera, limit);
+                label(context, search.start(), "INÍCIO E CHEGADA", colors.sage(), camera, limit);
             } else {
                 label(context, search.start(), "INÍCIO", colors.pearl(), camera, limit);
-                label(context, search.goal(), "META", colors.sage(), camera, limit);
+                label(context, search.goal(), "CHEGADA", colors.sage(), camera, limit);
             }
             labels.draw();
         } finally {

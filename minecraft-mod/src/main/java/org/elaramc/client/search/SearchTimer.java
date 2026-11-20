@@ -33,7 +33,11 @@ final class SearchTimer {
     }
 
     long tenths() {
+        return milliseconds() / 100;
+    }
+
+    long milliseconds() {
         long nanos = running ? elapsed + now.getAsLong() - startedAt : elapsed;
-        return nanos / 100_000_000L;
+        return nanos / 1_000_000;
     }
 }

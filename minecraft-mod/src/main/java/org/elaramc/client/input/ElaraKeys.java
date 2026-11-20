@@ -48,9 +48,7 @@ public final class ElaraKeys {
         });
         bind("algorithm", GLFW.GLFW_KEY_K, client -> {
             var next = search.algorithm() == SearchAlgorithm.BFS ? SearchAlgorithm.DFS : SearchAlgorithm.BFS;
-            search.editSettings(options -> options.algorithm = next);
-            search.selectAlgorithm(next);
-            return next + " selecionado.";
+            return search.chooseAlgorithm(next);
         });
         bind("slower", GLFW.GLFW_KEY_LEFT_BRACKET, client -> changeSpeed(-4));
         bind("faster", GLFW.GLFW_KEY_RIGHT_BRACKET, client -> changeSpeed(4));

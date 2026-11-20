@@ -17,20 +17,23 @@ public final class ElaraChat {
     }
 
     public static Text help(Palette colors, String command, String example, String description) {
-        String suggestion = example.isEmpty() ? "/elara" : "/elara " + example;
-        String usage = command.isEmpty() ? "/elara" : "/elara " + command;
-        return colored("  " + usage, colors.iceBlue())
-            .styled(style -> style.withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, suggestion)))
-            .append(colored("  ·  ", colors.lavender()))
-            .append(colored(description, colors.pearl()));
+        return Text.empty().append(link(colors, "/elara " + command, example, ClickEvent.Action.SUGGEST_COMMAND))
+            .append(colored("  " + description, colors.pearl()));
+    }
+
+    public static MutableText link(Palette colors, String label, String command, ClickEvent.Action action) {
+        return colored(label, colors.iceBlue())
+            .styled(style -> style.withClickEvent(new ClickEvent(action, "/elara " + command)).withUnderline(true));
     }
 
     private static Text message(Palette colors, String message, boolean warning) {
         var result = colored("elara.", colors.lavender()).styled(style -> style.withItalic(true));
         var body = Text.empty().append(result);
-        for (String part : message.split(" \\| ")) {
+        String[] parts = message.split(" \\| ");
+        for (int index = 0; index < parts.length; index++) {
+            String part = parts[index];
             int color = warning ? colors.champagne() : metricColor(colors, part);
-            body.append(colored("  ·  ", colors.lavender())).append(colored(part, color));
+            body.append(Text.literal(index == 0 ? "  " : "\n")).append(colored(part, color));
         }
         return body;
     }

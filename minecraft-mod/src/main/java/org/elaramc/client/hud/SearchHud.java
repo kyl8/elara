@@ -3,37 +3,17 @@ package org.elaramc.client.hud;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.ChatScreen;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
 import org.elaramc.client.config.ElaraSettings;
 import org.elaramc.client.config.ElaraSettings.Palette;
-import org.elaramc.client.config.PlayMode;
 import org.elaramc.client.config.SettingsStore;
 import org.elaramc.client.search.WorldSearch;
-import org.elaramc.search.SearchAlgorithm;
 
 public final class SearchHud {
-    private static final int WIDTH = 198;
-    private static final int HEIGHT = 144;
-    private static final Text WORDMARK = Text.literal("elara.").formatted(Formatting.ITALIC);
-    private static final String DASH = "–";
+    private static final int WIDTH = 144;
+    private static final int HEIGHT = 49;
+
     private final WorldSearch search;
     private final SettingsStore settings;
-    private String phase = "";
-    private SearchAlgorithm algorithm;
-    private ElaraSettings lastOptions;
-    private int revision = -1;
-    private long phaseStarted;
-    private String method;
-    private String expanded;
-    private String discovered;
-    private String frontier;
-    private String current;
-    private String goal;
-    private String path;
-    private String pace;
-    private long elapsed = -1;
-    private String time = DASH;
 
     public SearchHud(WorldSearch search, SettingsStore settings) {
         this.search = search;
@@ -44,22 +24,11 @@ public final class SearchHud {
         var client = MinecraftClient.getInstance();
         var options = settings.current();
         if (!options.hudVisible || client.options.hudHidden || client.world == null
-            || client.currentScreen instanceof InspectorScreen || client.currentScreen instanceof ChatScreen) {
+            || client.currentScreen instanceof InspectorScreen || client.currentScreen instanceof ChatScreen
+            || (search.start() == null && search.goal() == null)) {
             return;
         }
-        String actualPhase = search.phase();
-        if (!actualPhase.equals(phase)) {
-            phase = actualPhase;
-            phaseStarted = System.nanoTime();
-        }
-        if (revision != search.trace().revision() || algorithm != search.algorithm() || lastOptions != options) {
-            update(options);
-        }
-        long currentTime = search.session() == null ? -1 : search.elapsedTenths();
-        if (elapsed != currentTime) {
-            elapsed = currentTime;
-            time = elapsed < 0 ? DASH : search.elapsedLabel();
-        }
+
         var colors = settings.palette();
         int width = draw.getScaledWindowWidth();
         int height = draw.getScaledWindowHeight();
@@ -69,73 +38,46 @@ public final class SearchHud {
             (height - 2.0 * marginY) / HEIGHT));
         boolean right = options.hudCorner == ElaraSettings.Corner.TOP_RIGHT
             || options.hudCorner == ElaraSettings.Corner.BOTTOM_RIGHT;
-        boolean bottom = options.hudCorner == ElaraSettings.Corner.BOTTOM_RIGHT
-            || options.hudCorner == ElaraSettings.Corner.BOTTOM_LEFT;
-        double x = right ? width - marginX - WIDTH * scale : marginX;
-        double y = bottom ? height - marginY - HEIGHT * scale : marginY;
+        boolean bottom = options.hudCorner == ElaraSettings.Corner.BOTTOM_LEFT
+            || options.hudCorner == ElaraSettings.Corner.BOTTOM_RIGHT;
         var matrix = draw.getMatrices();
         matrix.push();
-        matrix.translate(x, y, 0);
+        matrix.translate(right ? width - marginX - WIDTH * scale : marginX,
+            bottom ? height - marginY - HEIGHT * scale : marginY, 0);
         matrix.scale((float) scale, (float) scale, 1);
+
         var font = client.textRenderer;
-        int accent = phaseColor(colors, phase);
-        int rule = Palette.alpha(colors.pearl(), 62);
-        float transition = options.reducedMotion ? 1
-            : Math.min(1, (System.nanoTime() - phaseStarted) / 140_000_000.0f);
-        draw.fill(0, 0, WIDTH, HEIGHT, Palette.alpha(colors.obsidian(), 248));
-        draw.fill(0, 0, WIDTH, 1, Palette.alpha(accent, 144 + Math.round(74 * transition)));
-        matrix.push();
-        matrix.translate(10, 9, 0);
-        matrix.scale(1.35f, 1.35f, 1);
-        draw.drawText(font, WORDMARK, 0, 0, colors.pearl(), false);
-        matrix.pop();
-        String phaseLabel = search.phaseLabel();
-        int phaseX = WIDTH - 10 - font.getWidth(phaseLabel);
-        draw.fill(phaseX - 7, 13, phaseX - 3, 17, accent);
-        draw.drawText(font, phaseLabel, phaseX, 11, accent, false);
-        draw.drawText(font, "INSPETOR DE BUSCA", 10, 25, colors.lavender(), false);
-        draw.fill(10, 38, WIDTH - 10, 39, rule);
-        matrix.push();
-        matrix.translate(10, 44, 0);
-        float methodScale = Math.min(1.0f, (WIDTH - 20.0f) / font.getWidth(method));
-        matrix.scale(methodScale, methodScale, 1);
-        draw.drawText(font, method, 0, 0, colors.pearl(), false);
-        matrix.pop();
-        draw.drawText(font, "Expandidos", 10, 59, colors.iceBlue(), false);
-        draw.drawText(font, "Descobertos", 74, 59, colors.lavender(), false);
-        draw.drawText(font, "Fronteira", 144, 59, colors.lavender(), false);
-        draw.drawText(font, expanded, 10, 72, colors.pearl(), false);
-        draw.drawText(font, discovered, 74, 72, colors.pearl(), false);
-        draw.drawText(font, frontier, 144, 72, colors.pearl(), false);
-        draw.fill(10, 85, WIDTH - 10, 86, rule);
-        row(draw, "Atual", current, 92, colors.iceBlue(), colors.pearl());
-        row(draw, "Meta", goal, 104, colors.sage(), colors.pearl());
-        row(draw, "Caminho", path, 116, colors.champagne(), colors.pearl());
-        row(draw, "Tempo", time, 128, colors.iceBlue(), colors.pearl());
-        draw.drawText(font, pace, WIDTH - 10 - font.getWidth(pace), 128, colors.lavender(), false);
-        matrix.pop();
-    }
+        int accent = phaseColor(colors, search.phase());
+        draw.fill(0, 0, WIDTH, HEIGHT, Palette.alpha(colors.obsidian(), 247));
+        draw.fill(0, 0, 2, HEIGHT, accent);
+        draw.drawText(font, "Elara", 9, 8, colors.pearl(), false);
+        String algorithm = search.algorithm().name();
+        draw.drawText(font, algorithm, WIDTH - 9 - font.getWidth(algorithm), 8, colors.lavender(), false);
 
-    private void update(ElaraSettings options) {
-        revision = search.trace().revision();
-        algorithm = search.algorithm();
-        lastOptions = options;
+        draw.drawText(font, routeState(search), 9, 21, accent, false);
         var metrics = search.metrics();
-        method = algorithm == SearchAlgorithm.BFS ? "BFS · Busca em largura · Fila FIFO" : "DFS · Busca em profundidade · Pilha LIFO";
-        expanded = metrics == null ? DASH : Integer.toString(metrics.expanded());
-        discovered = metrics == null ? DASH : Integer.toString(metrics.discovered());
-        frontier = metrics == null ? DASH : Integer.toString(metrics.frontierSize());
-        current = metrics == null || metrics.current() == null ? DASH : metrics.current().coordinates();
-        goal = search.goal() == null ? DASH : search.goal().coordinates();
-        path = metrics == null || metrics.pathLength().isEmpty() ? DASH : metrics.pathLength().getAsInt() + " passos";
-        pace = options.mode == PlayMode.ANIMATED ? options.expansionsPerSecond + " exp/s"
-            : options.mode.label();
+        if (metrics == null) {
+            draw.drawText(font, "F6 para abrir a rota", 9, 34, colors.pearl(), false);
+        } else {
+            String count = metrics.pathLength().isPresent()
+                ? metrics.pathLength().getAsInt() + " passos" : metrics.expanded() + " expandidos";
+            draw.drawText(font, count, 9, 34, colors.pearl(), false);
+            String time = search.elapsedLabel();
+            draw.drawText(font, time, WIDTH - 9 - font.getWidth(time), 34, colors.pearl(), false);
+        }
+        matrix.pop();
     }
 
-    private static void row(DrawContext draw, String label, String value, int y, int accent, int color) {
-        var font = MinecraftClient.getInstance().textRenderer;
-        draw.drawText(font, label, 10, y, accent, false);
-        draw.drawText(font, font.trimToWidth(value, WIDTH - 68), 58, y, color, false);
+    static String routeState(WorldSearch search) {
+        return switch (search.phase()) {
+            case "RUNNING" -> "Buscando rota";
+            case "PAUSED" -> "Busca pausada";
+            case "FOUND" -> "Rota encontrada";
+            case "NO PATH" -> "Sem rota na região";
+            case "ERROR" -> "Confira a seleção";
+            default -> search.start() == null ? "Marque o início"
+                : search.goal() == null ? "Marque a chegada" : "Pronto para buscar";
+        };
     }
 
     static int phaseColor(Palette colors, String phase) {

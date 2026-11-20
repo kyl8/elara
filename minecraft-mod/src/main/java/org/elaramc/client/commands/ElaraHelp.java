@@ -3,6 +3,8 @@ package org.elaramc.client.commands;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
+import net.minecraft.text.ClickEvent;
+import net.minecraft.text.Text;
 import org.elaramc.client.ElaraChat;
 import org.elaramc.client.config.SettingsStore;
 
@@ -16,18 +18,21 @@ final class ElaraHelp {
 
     private static final List<Group> GROUPS = List.of(
         new Group("setup", "Preparar a região", List.of(
-            new Entry("start [x y z]", "start", "Marca o início."),
-            new Entry("goal [x y z]", "goal", "Marca a meta."),
+            new Entry("origin [look|x y z]", "origin", "Marca o início no pé ou no piso mirado."),
+            new Entry("finish [look|x y z]", "finish", "Marca a chegada."),
+            new Entry("swap", "swap", "Inverte os pontos."),
+            new Entry("clear", "clear", "Limpa os pontos e a região."),
             new Entry("region first [x y z]", "region first", "Marca o canto A."),
             new Entry("region second [x y z]", "region second", "Marca o canto B."),
             new Entry("region auto", "region auto", "Usa limites automáticos."),
             new Entry("limits <lado> <estados>", "limits ", "Ajusta os limites."),
             new Entry("scan", "scan", "Analisa as colisões e cria o grafo."))),
         new Group("search", "Executar a busca", List.of(
-            new Entry("algorithm <bfs|dfs>", "algorithm ", "Escolhe o algoritmo."),
+            new Entry("start", "start", "Busca com o algoritmo selecionado."),
+            new Entry("algorithm <bfs|dfs>", "algorithm ", "BFS acha a menor rota. DFS explora em profundidade."),
             new Entry("mode <step|animated|instant>", "mode ", "Escolhe o modo."),
             new Entry("speed <taxa>", "speed ", "Define as expansões por segundo."),
-            new Entry("run [bfs|dfs]", "run", "Inicia uma busca."),
+            new Entry("run [bfs|dfs]", "run", "Busca no modo escolhido."),
             new Entry("pause", "pause", "Pausa a busca."),
             new Entry("resume", "resume", "Retoma a busca."),
             new Entry("step", "step", "Expande um estado."),
@@ -52,31 +57,38 @@ final class ElaraHelp {
     private ElaraHelp() {}
 
     static LiteralArgumentBuilder<FabricClientCommandSource> command(SettingsStore settings) {
-        var help = literal("help").executes(context -> display(context.getSource(), settings, GROUPS));
+        var help = literal("help").executes(context -> overview(context.getSource(), settings));
         for (Group group : GROUPS) {
-            help.then(literal(group.name).executes(context -> display(context.getSource(), settings, List.of(group))));
+            help.then(literal(group.name).executes(context -> display(context.getSource(), settings, group)));
         }
         return help;
     }
 
-    private static int display(FabricClientCommandSource source, SettingsStore settings, List<Group> groups) {
+    static int overview(FabricClientCommandSource source, SettingsStore settings) {
         var colors = settings.palette();
-        if (groups.size() > 1) {
-            source.sendFeedback(ElaraChat.info(colors, "Guia de comandos"));
-            source.sendFeedback(ElaraChat.help(colors, "", "", "Mostra sua posição atual."));
-        }
-        if (groups.size() > 1) {
-            source.sendFeedback(ElaraChat.info(colors, "Atalhos por tema | Clique para preencher o chat."));
-            for (Group group : groups) {
-                source.sendFeedback(ElaraChat.help(colors, "help " + group.name, "help " + group.name, group.title));
-            }
-        }
-        for (Group group : groups) {
-            source.sendFeedback(ElaraChat.info(colors, group.title));
-            for (Entry entry : group.entries) {
-                source.sendFeedback(ElaraChat.help(colors, entry.usage, entry.example, entry.description));
-            }
-        }
+        source.sendFeedback(Text.empty().append(ElaraChat.info(colors, "Sua primeira rota"))
+            .append("\n").append(ElaraChat.help(colors, "origin", "origin", "Marque o início onde está."))
+            .append("\n").append(ElaraChat.help(colors, "finish", "finish", "Vá até a chegada e marque."))
+            .append("\n").append(ElaraChat.help(colors, "start", "start", "Busque com o algoritmo ativo."))
+            .append("\n\n").append(category(settings, "Seleção", "setup")).append("    ")
+            .append(category(settings, "Busca", "search")).append("    ")
+            .append(category(settings, "Cenários", "scenarios")).append("    ")
+            .append(category(settings, "Tela", "display")));
         return Command.SINGLE_SUCCESS;
+    }
+
+    private static int display(FabricClientCommandSource source, SettingsStore settings, Group group) {
+        var colors = settings.palette();
+        var text = Text.empty().append(ElaraChat.info(colors, group.title));
+        for (Entry entry : group.entries) {
+            text.append("\n").append(ElaraChat.help(colors, entry.usage, entry.example, entry.description));
+        }
+        source.sendFeedback(text.append("\n\n").append(category(settings, "Voltar ao início", "")));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static Text category(SettingsStore settings, String label, String group) {
+        String command = group.isEmpty() ? "help" : "help " + group;
+        return ElaraChat.link(settings.palette(), label, command, ClickEvent.Action.RUN_COMMAND);
     }
 }

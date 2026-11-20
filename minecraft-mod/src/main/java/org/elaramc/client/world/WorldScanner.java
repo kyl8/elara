@@ -32,14 +32,47 @@ public final class WorldScanner {
         }
     }
 
+    /** Grow around both markers without asking the client to load any extra chunks. */
+    public SearchRegion automaticRegion(CollisionView world, GridPosition start, GridPosition goal,
+                                        int maxSide, int maxStates) {
+        var region = new SearchRegion(Math.min(start.x(), goal.x()), Math.min(start.z(), goal.z()),
+            Math.max(start.x(), goal.x()), Math.max(start.z(), goal.z()), start.y());
+        requireSize(region, maxSide);
+        requireAvailableRegion(world, region);
+        while (true) {
+            SearchRegion previous = region;
+            region = extend(world, region, -1, 0, 0, 0, maxSide, maxStates);
+            region = extend(world, region, 0, 0, 1, 0, maxSide, maxStates);
+            region = extend(world, region, 0, -1, 0, 0, maxSide, maxStates);
+            region = extend(world, region, 0, 0, 0, 1, maxSide, maxStates);
+            if (region == previous) {
+                return region;
+            }
+        }
+    }
+
+    private static SearchRegion extend(CollisionView world, SearchRegion region,
+                                       int west, int north, int east, int south, int maxSide, int maxStates) {
+        var candidate = new SearchRegion(region.minX() + west, region.minZ() + north, region.maxX() + east,
+            region.maxZ() + south, region.y());
+        if (candidate.width() > maxSide || candidate.depth() > maxSide
+            || candidate.width() * candidate.depth() > maxStates) {
+            return region;
+        }
+        try {
+            requireAvailableRegion(world, candidate);
+            return candidate;
+        } catch (IllegalArgumentException unavailable) {
+            return region;
+        }
+    }
+
     public WorldSnapshot scan(CollisionView world, SearchRegion region, GridPosition start, GridPosition goal,
                               int maxSide, int maxStates) {
         if (maxSide < 1 || maxSide > MAX_SIDE || maxStates < 1 || maxStates > MAX_STATES) {
             throw new IllegalArgumentException("Os limites da região estão fora da faixa permitida.");
         }
-        if (region.width() > maxSide || region.depth() > maxSide) {
-            throw new IllegalArgumentException("A região excede " + maxSide + " blocos por lado.");
-        }
+        requireSize(region, maxSide);
         var graph = GridGraph.builder(region, maxSide, maxStates);
         requireInRegion(region, start, "Início");
         requireInRegion(region, goal, "Meta");
@@ -80,6 +113,12 @@ public final class WorldScanner {
         }
 
         return new WorldSnapshot(graph.build(), heights);
+    }
+
+    private static void requireSize(SearchRegion region, int maxSide) {
+        if (region.width() > maxSide || region.depth() > maxSide) {
+            throw new IllegalArgumentException("Os pontos precisam caber em uma região de " + maxSide + " blocos por lado.");
+        }
     }
 
     private static void requireInRegion(SearchRegion region, GridPosition position, String label) {

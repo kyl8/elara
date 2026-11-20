@@ -23,7 +23,6 @@ import java.util.stream.Collectors;
 
 /** Owns a client's current selection, graph snapshot, and search session. */
 public final class WorldSearch {
-    private static final int AUTO_PADDING = 4;
     private static final int PATH_PAGE_SIZE = 6;
 
     private final WorldScanner scanner = new WorldScanner();
@@ -39,6 +38,7 @@ public final class WorldSearch {
     private WorldSnapshot snapshot;
     private SearchSession session;
     private SearchAlgorithm algorithm;
+    private boolean quickSearch;
     private String scanError;
 
     public WorldSearch(SettingsStore settings) {
@@ -63,6 +63,22 @@ public final class WorldSearch {
     public void selectGoal(GridPosition position) {
         goal = position;
         clearSnapshot();
+    }
+
+    public String swapPoints() {
+        requireEndpoints();
+        GridPosition origin = start;
+        start = goal;
+        goal = origin;
+        clearSnapshot();
+        return "Início e chegada invertidos.";
+    }
+
+    public String clearPoints() {
+        start = null;
+        goal = null;
+        useAutomaticRegion();
+        return "Seleção limpa.";
     }
 
     public void selectFirstCorner(GridPosition position) {
@@ -97,6 +113,7 @@ public final class WorldSearch {
 
     private void clearSession() {
         session = null;
+        quickSearch = false;
         trace.clear();
         clock.reset();
         timer.reset();
@@ -122,18 +139,10 @@ public final class WorldSearch {
             + " | Y " + region.y();
     }
 
-    public SearchRegion selectedRegion() {
-        if (start == null || goal == null) {
-            throw new IllegalStateException("Marque o início com /elara start e a meta com /elara goal.");
-        }
-        if (start.y() != goal.y()) {
-            throw new IllegalArgumentException("Início e meta precisam estar no mesmo piso (Y).");
-        }
+    private SearchRegion selectedRegion() {
+        requireEndpoints();
         if (firstCorner == null && secondCorner == null) {
-            return new SearchRegion(
-                Math.min(start.x(), goal.x()) - AUTO_PADDING, Math.min(start.z(), goal.z()) - AUTO_PADDING,
-                Math.max(start.x(), goal.x()) + AUTO_PADDING, Math.max(start.z(), goal.z()) + AUTO_PADDING,
-                start.y());
+            return scanner.automaticRegion(world, start, goal, settings.current().maxSide, settings.current().maxStates);
         }
         if (firstCorner == null || secondCorner == null) {
             throw new IllegalStateException("Marque os dois cantos ou use /elara region auto.");
@@ -144,6 +153,15 @@ public final class WorldSearch {
         return new SearchRegion(
             Math.min(firstCorner.x(), secondCorner.x()), Math.min(firstCorner.z(), secondCorner.z()),
             Math.max(firstCorner.x(), secondCorner.x()), Math.max(firstCorner.z(), secondCorner.z()), start.y());
+    }
+
+    private void requireEndpoints() {
+        if (start == null || goal == null) {
+            throw new IllegalStateException("Marque o início com /elara origin e a chegada com /elara finish.");
+        }
+        if (start.y() != goal.y()) {
+            throw new IllegalArgumentException("Marque os dois pontos no mesmo piso (Y).");
+        }
     }
 
     public void prepareScenario(SearchRegion region, GridPosition origin, GridPosition target, SearchAlgorithm selected) {
@@ -159,7 +177,13 @@ public final class WorldSearch {
         clearSession();
     }
 
-    public void selectAlgorithm(SearchAlgorithm selection) {
+    public String chooseAlgorithm(SearchAlgorithm selection) {
+        editSettings(options -> options.algorithm = selection);
+        selectAlgorithm(selection);
+        return selection + " selecionado.";
+    }
+
+    private void selectAlgorithm(SearchAlgorithm selection) {
         if (algorithm != selection) {
             algorithm = selection;
             clearSession();
@@ -171,16 +195,28 @@ public final class WorldSearch {
     }
 
     public String run(SearchAlgorithm selection) {
+        return run(selection, false);
+    }
+
+    public String startQuick() {
+        return run(algorithm, true);
+    }
+
+    private String run(SearchAlgorithm selection, boolean instant) {
         SearchSession next = newSession(selection);
         clearSession();
         session = next;
         algorithm = selection;
-        if (settings.current().mode == PlayMode.STEP) {
-            return status();
+        quickSearch = instant;
+        if (runMode() == PlayMode.STEP) {
+            return "Busca pronta. Use /elara step ou F8.";
         }
         session.resume();
-        timer.start();
-        return algorithm + " BUSCANDO | Início " + start.coordinates() + " | Meta " + goal.coordinates();
+        if (!quickSearch) {
+            timer.start();
+            return "Buscando com " + algorithm + ".";
+        }
+        return "";
     }
 
     public String step() {
@@ -198,24 +234,24 @@ public final class WorldSearch {
             throw new IllegalStateException("Busca encerrada. Use /elara reset ou /elara run para repetir.");
         }
         record(events);
-        return status();
+        return "Expandidos " + session.metrics().expanded() + " com " + algorithm + ".";
     }
 
     public String pause() {
         requireSession().pause();
         timer.stop();
-        return status();
+        return session.status() == SearchStatus.PAUSED ? "Busca pausada." : phaseLabel();
     }
 
     public String resume() {
-        if (settings.current().mode == PlayMode.STEP) {
+        if (runMode() == PlayMode.STEP) {
             throw new IllegalStateException("Use /elara step ou altere o modo com /elara mode animated.");
         }
         requireSession().resume();
-        if (session.status() == SearchStatus.RUNNING) {
+        if (session.status() == SearchStatus.RUNNING && !quickSearch) {
             timer.start();
         }
-        return status();
+        return session.status() == SearchStatus.RUNNING ? "Busca retomada com " + algorithm + "." : phaseLabel();
     }
 
     public String reset() {
@@ -225,21 +261,22 @@ public final class WorldSearch {
             session.reset();
         }
         trace.clear();
+        quickSearch = false;
         clock.reset();
         timer.reset();
-        return status();
+        return "Busca reiniciada.";
     }
 
     private SearchSession newSession(SearchAlgorithm selection) {
         if (snapshot == null) {
-            throw new IllegalStateException("Analise a região com /elara scan primeiro.");
+            scan();
         }
         return new SearchSession(graph(), start, goal, selection);
     }
 
     private SearchSession requireSession() {
         if (session == null) {
-            throw new IllegalStateException("Inicie a busca com /elara run ou /elara step.");
+            throw new IllegalStateException("Inicie a busca com /elara start.");
         }
         return session;
     }
@@ -288,19 +325,30 @@ public final class WorldSearch {
         }
         timer.start();
         var options = settings.current();
-        int budget = clock.budget(options.mode, options.expansionsPerSecond);
+        int budget = clock.budget(runMode(), options.expansionsPerSecond);
         for (int index = 0; index < budget && session.status() == SearchStatus.RUNNING; index++) {
             record(session.advance());
         }
-        if (session.status() != SearchStatus.RUNNING) {
+        if (quickSearch || session.status() != SearchStatus.RUNNING) {
             timer.stop();
-            client.player.sendMessage(ElaraChat.info(settings.palette(), resultSummary()), false);
+        }
+        if (session.status() != SearchStatus.RUNNING) {
+            var metrics = session.metrics();
+            String outcome = metrics.pathLength().isPresent()
+                ? metrics.pathLength().getAsInt() + " passos"
+                : "Sem rota na região";
+            client.player.sendMessage(ElaraChat.info(settings.palette(), algorithm + "  " + outcome
+                + "   " + elapsedLabel()), false);
         }
     }
 
     private void record(List<SearchEvent> events) {
         var options = settings.current();
-        trace.accept(events, snapshot, options.historySize, options.reducedMotion || options.mode == PlayMode.INSTANT);
+        trace.accept(events, snapshot, options.historySize, options.reducedMotion || runMode() == PlayMode.INSTANT);
+    }
+
+    private PlayMode runMode() {
+        return quickSearch ? PlayMode.INSTANT : settings.current().mode;
     }
 
     public void editSettings(Consumer<ElaraSettings> edit) {
@@ -324,7 +372,7 @@ public final class WorldSearch {
         }
         if (previous.mode != options.mode) {
             clock.reset();
-            if (options.mode == PlayMode.STEP && session != null) {
+            if (runMode() == PlayMode.STEP && session != null) {
                 session.pause();
                 timer.stop();
             }
@@ -336,6 +384,7 @@ public final class WorldSearch {
     public GridPosition start() { return start; }
     public GridPosition goal() { return goal; }
     public SearchAlgorithm algorithm() { return algorithm; }
+    public boolean showExploration() { return !quickSearch; }
     public SearchSession session() { return session; }
     public GridGraph graph() { return snapshot == null ? null : snapshot.graph(); }
     public String scanError() { return scanError; }
@@ -367,12 +416,9 @@ public final class WorldSearch {
         };
     }
 
-    public long elapsedTenths() {
-        return timer.tenths();
-    }
-
     public String elapsedLabel() {
-        return elapsedSeconds(',') + " s";
+        long millis = timer.milliseconds();
+        return millis == 0 ? "<1 ms" : millis < 1000 ? millis + " ms" : elapsedSeconds(',') + " s";
     }
 
     public String elapsedSeconds(char separator) {

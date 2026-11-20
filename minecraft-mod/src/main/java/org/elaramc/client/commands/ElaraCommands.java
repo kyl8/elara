@@ -5,6 +5,10 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.MathHelper;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import org.elaramc.client.ElaraChat;
 import net.minecraft.util.math.BlockPos;
@@ -60,15 +64,18 @@ public final class ElaraCommands {
                 return "Limites de " + side + " blocos por lado e " + states + " estados. Use /elara scan.";
             }))));
         var algorithm = literal("algorithm")
-            .then(action("bfs", () -> choose(SearchAlgorithm.BFS)))
-            .then(action("dfs", () -> choose(SearchAlgorithm.DFS)));
+            .then(action("bfs", () -> search.chooseAlgorithm(SearchAlgorithm.BFS)))
+            .then(action("dfs", () -> search.chooseAlgorithm(SearchAlgorithm.DFS)));
 
         dispatcher.register(literal("elara")
-            .executes(context -> reply(context, () -> "Bloco atual " + currentPosition(context.getSource()).coordinates()
-                + " | Use /elara help"))
+            .executes(context -> ElaraHelp.overview(context.getSource(), settings))
             .then(ElaraHelp.command(settings))
-            .then(selection("start", "Início", search::selectStart))
+            .then(coordinates(action("start", search::startQuick), "Início", search::selectStart))
+            .then(endpoint("origin", "Início", search::selectStart))
+            .then(endpoint("finish", "Chegada", search::selectGoal))
             .then(selection("goal", "Meta", search::selectGoal))
+            .then(action("swap", search::swapPoints))
+            .then(action("clear", search::clearPoints))
             .then(region)
             .then(limits)
             .then(algorithm)
@@ -98,7 +105,7 @@ public final class ElaraCommands {
             .then(action("walk", () -> walker.toggle(MinecraftClient.getInstance()))
                 .then(action("start", () -> walker.start(MinecraftClient.getInstance())))
                 .then(action("stop", walker::stop)))
-            .then(action("exit", () -> walker.findExit(MinecraftClient.getInstance(), SearchAlgorithm.BFS))
+            .then(action("exit", () -> walker.findExit(MinecraftClient.getInstance(), search.algorithm()))
                 .then(action("bfs", () -> walker.findExit(MinecraftClient.getInstance(), SearchAlgorithm.BFS)))
                 .then(action("dfs", () -> walker.findExit(MinecraftClient.getInstance(), SearchAlgorithm.DFS))))
             .then(action("overlay", () -> {
@@ -121,12 +128,6 @@ public final class ElaraCommands {
             .then(action("status", search::status))
             .then(action("path", () -> search.path(1)).then(argument("page", integer(1))
                 .executes(context -> reply(context, () -> search.path(getInteger(context, "page")))))));
-    }
-
-    private String choose(SearchAlgorithm algorithm) {
-        edit(options -> options.algorithm = algorithm);
-        search.selectAlgorithm(algorithm);
-        return algorithm + " selecionado | Use /elara step ou /elara run.";
     }
 
     private String mode(PlayMode mode) {
@@ -154,7 +155,8 @@ public final class ElaraCommands {
     }
 
     private String loadScenario(CommandContext<FabricClientCommandSource> context, SearchAlgorithm override) {
-        return scenarios.load(MinecraftClient.getInstance(), getString(context, "name"), override);
+        return scenarios.load(MinecraftClient.getInstance(), getString(context, "name"),
+            override == null ? search.algorithm() : override);
     }
 
     private void edit(Consumer<ElaraSettings> change) {
@@ -167,9 +169,20 @@ public final class ElaraCommands {
 
     private LiteralArgumentBuilder<FabricClientCommandSource> selection(
         String name, String label, Consumer<GridPosition> select) {
-        return literal(name)
-            .executes(context -> reply(context, () -> mark(label, select, currentPosition(context.getSource()))))
-            .then(argument("x", integer(-WORLD_COORDINATE_LIMIT, WORLD_COORDINATE_LIMIT))
+        return coordinates(literal(name)
+            .executes(context -> reply(context, () -> mark(label, select, currentPosition(context.getSource())))),
+            label, select);
+    }
+
+    private LiteralArgumentBuilder<FabricClientCommandSource> endpoint(
+        String name, String label, Consumer<GridPosition> select) {
+        return selection(name, label, select).then(literal("look").executes(context ->
+            reply(context, () -> mark(label, select, aimedPosition(context.getSource())))));
+    }
+
+    private LiteralArgumentBuilder<FabricClientCommandSource> coordinates(
+        LiteralArgumentBuilder<FabricClientCommandSource> command, String label, Consumer<GridPosition> select) {
+        return command.then(argument("x", integer(-WORLD_COORDINATE_LIMIT, WORLD_COORDINATE_LIMIT))
                 .then(argument("y", integer(-WORLD_COORDINATE_LIMIT, WORLD_COORDINATE_LIMIT))
                     .then(argument("z", integer(-WORLD_COORDINATE_LIMIT, WORLD_COORDINATE_LIMIT))
                         .executes(context -> reply(context, () -> mark(label, select, new GridPosition(
@@ -178,7 +191,7 @@ public final class ElaraCommands {
 
     private static String mark(String label, Consumer<GridPosition> select, GridPosition position) {
         select.accept(position);
-        return label + " marcado em " + position.coordinates() + ".";
+        return label + " em " + position.coordinates() + ".";
     }
 
     private static GridPosition currentPosition(FabricClientCommandSource source) {
@@ -186,11 +199,24 @@ public final class ElaraCommands {
         return new GridPosition(block.getX(), block.getY(), block.getZ());
     }
 
+    private static GridPosition aimedPosition(FabricClientCommandSource source) {
+        var target = source.getPlayer().raycast(48, 1, false);
+        if (!(target instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK
+            || hit.getSide() != Direction.UP) {
+            throw new IllegalArgumentException("Aponte para a face de cima do piso.");
+        }
+        BlockPos block = hit.getBlockPos();
+        return new GridPosition(block.getX(), MathHelper.floor(hit.getPos().getY() + 1e-6), block.getZ());
+    }
+
     private int reply(CommandContext<FabricClientCommandSource> context, Supplier<String> action) {
         FabricClientCommandSource source = context.getSource();
         search.bindWorld(source.getWorld());
         try {
-            source.sendFeedback(ElaraChat.info(settings.palette(), action.get()));
+            String message = action.get();
+            if (!message.isEmpty()) {
+                source.sendFeedback(ElaraChat.info(settings.palette(), message));
+            }
             return Command.SINGLE_SUCCESS;
         } catch (IllegalArgumentException | IllegalStateException error) {
             source.sendFeedback(ElaraChat.warning(settings.palette(), error.getMessage()));

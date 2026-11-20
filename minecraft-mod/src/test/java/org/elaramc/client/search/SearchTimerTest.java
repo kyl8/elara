@@ -16,6 +16,7 @@ class SearchTimerTest {
         now.addAndGet(290_000_000L);
         timer.start();
         assertEquals(2, timer.tenths());
+        assertEquals(290, timer.milliseconds());
         timer.stop();
         now.addAndGet(8_000_000_000L);
         timer.stop();
