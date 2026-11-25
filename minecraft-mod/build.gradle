@@ -58,7 +58,6 @@ tasks.register('validateConfig', JavaExec) {
 }
 
 tasks.named('jar') {
-    from(rootProject.file('LICENSE'))
     dependsOn configurations.bundledCore
     from rootProject.file('LICENSE')
     // Loom 1.6 may reuse a generated nested JAR after the core changes at the same version.

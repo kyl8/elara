@@ -24,9 +24,9 @@ final class ElaraHelp {
             new Entry("clear", "clear", "Limpa os pontos e a região."),
             new Entry("region first [x y z]", "region first", "Marca o canto A."),
             new Entry("region second [x y z]", "region second", "Marca o canto B."),
-            new Entry("region auto", "region auto", "Usa limites automáticos."),
-            new Entry("limits <lado> <estados>", "limits ", "Ajusta os limites."),
-            new Entry("scan", "scan", "Analisa as colisões e cria o grafo."))),
+            new Entry("region auto", "region auto", "Expande a região aos poucos para procurar desvios."),
+            new Entry("limits <lado> <estados>", "limits ", "Ajusta o lado X/Z e o total de estados XYZ separadamente."),
+            new Entry("scan", "scan", "Analisa as colisões em lotes. Use status para acompanhar."))),
         new Group("search", "Executar a busca", List.of(
             new Entry("start", "start", "Busca a rota e caminha da sua posição no modo solo."),
             new Entry("start walk", "start walk", "Atalho para buscar e caminhar no modo solo."),
@@ -38,7 +38,7 @@ final class ElaraHelp {
             new Entry("resume", "resume", "Retoma a busca."),
             new Entry("step", "step", "Expande um estado."),
             new Entry("reset", "reset", "Limpa a busca e o cronômetro."),
-            new Entry("status", "status", "Mostra as métricas da busca."),
+            new Entry("status", "status", "Mostra o progresso da varredura ou as métricas da busca."),
             new Entry("path [página]", "path", "Lista as coordenadas da rota."))),
         new Group("scenarios", "Cenários e caminhada", List.of(
             new Entry("scenario list", "scenario list", "Lista os cenários."),

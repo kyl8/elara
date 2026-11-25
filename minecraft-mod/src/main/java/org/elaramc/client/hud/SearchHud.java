@@ -84,6 +84,7 @@ public final class SearchHud {
 
     static String routeState(WorldSearch search) {
         return switch (search.phase()) {
+            case "SCANNING" -> "Analisando região";
             case "RUNNING" -> "Buscando rota";
             case "PAUSED" -> "Busca pausada";
             case "FOUND" -> "Rota encontrada";
@@ -96,7 +97,7 @@ public final class SearchHud {
 
     static int phaseColor(Palette colors, String phase) {
         return switch (phase) {
-            case "RUNNING" -> colors.iceBlue();
+            case "SCANNING", "RUNNING" -> colors.iceBlue();
             case "PAUSED", "NO PATH", "ERROR" -> colors.champagne();
             case "FOUND" -> colors.sage();
             default -> colors.lavender();

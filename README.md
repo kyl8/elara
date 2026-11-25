@@ -13,6 +13,9 @@
 <p><code>/elara finish</code> marks the destination. <code>/elara start</code> finds the route.<br>
 In single-player, Elara walks from your current position and times the trip.</p>
 
+<p>For larger mazes, use <code>/elara limits 128 32768</code>, mark both endpoints, then run <code>/elara scan</code>.<br>
+Automatic scans grow within loaded chunks as needed. Compare <code>/elara run bfs</code> and <code>/elara run dfs</code> on the same graph.</p>
+
 <p>Press <strong>F6</strong> for the route panel or run <code>/elara help</code> for commands.</p>
 
 <details>
@@ -21,6 +24,6 @@ In single-player, Elara walks from your current position and times the trip.</p>
 </details>
 
 <p><a href="https://www.planetminecraft.com/project/spinniest-s-vanilla-backrooms-map-unfinished-1-20-1/">Backrooms map by Spinniest</a><br>
-<a href="LICENSE">MIT License</a></p>
+<a href="CHANGELOG.md">Changelog</a> · <a href="LICENSE">MIT License</a></p>
 
 </div>

@@ -61,7 +61,7 @@ public final class ElaraCommands {
                 int side = getInteger(context, "side");
                 int states = getInteger(context, "states");
                 search.setLimits(side, states);
-                return "Limites de " + side + " blocos por lado e " + states + " estados. Use /elara scan.";
+                return "Limites | " + side + " por lado em X/Z | " + states + " estados em X/Y/Z. Use /elara scan.";
             }))));
         var algorithm = literal("algorithm")
             .then(action("bfs", () -> search.chooseAlgorithm(SearchAlgorithm.BFS)))

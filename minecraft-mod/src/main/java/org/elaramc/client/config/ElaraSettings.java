@@ -10,8 +10,8 @@ public final class ElaraSettings {
     public SearchAlgorithm algorithm = SearchAlgorithm.BFS;
     public PlayMode mode = PlayMode.ANIMATED;
     public int expansionsPerSecond = 24;
-    public int maxSide = 48;
-    public int maxStates = 2048;
+    public int maxSide = WorldScanner.MAX_SIDE;
+    public int maxStates = WorldScanner.MAX_STATES;
     public int historySize = 96;
     public boolean hudVisible = true;
     public boolean overlaysVisible = true;

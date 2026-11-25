@@ -14,6 +14,7 @@ import java.security.NoSuchAlgorithmException;
 public final class GridGraph {
     private final SearchRegion region;
     private final Map<GridPosition, Integer> edges;
+    private volatile String fingerprint;
 
     private GridGraph(SearchRegion region, Map<GridPosition, Integer> edges) {
         this.region = region;
@@ -46,6 +47,10 @@ public final class GridGraph {
 
     /** Stable over the region, standable cells and their actual transitions. */
     public String fingerprint() {
+        String cached = fingerprint;
+        if (cached != null) {
+            return cached;
+        }
         try {
             MessageDigest checksum = MessageDigest.getInstance("SHA-256");
             ByteBuffer bounds = ByteBuffer.allocate(24);
@@ -60,7 +65,9 @@ public final class GridGraph {
                     cell.putInt(position.x()).putInt(position.y()).putInt(position.z()).putInt(edges.get(position));
                     checksum.update(cell.array());
                 });
-            return HexFormat.of().formatHex(checksum.digest());
+            cached = HexFormat.of().formatHex(checksum.digest());
+            fingerprint = cached;
+            return cached;
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException(exception);
         }

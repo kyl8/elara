@@ -19,11 +19,14 @@ import org.elaramc.search.SearchStatus;
 
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** Owns a client's current selection, graph snapshot, and search session. */
 public final class WorldSearch {
     private static final int PATH_PAGE_SIZE = 6;
+    private static final int SCAN_WORK_PER_TICK = 512;
+    private static final long SCAN_NANOS_PER_TICK = 2_000_000;
 
     private final WorldScanner scanner = new WorldScanner();
     private final SettingsStore settings;
@@ -40,6 +43,10 @@ public final class WorldSearch {
     private SearchAlgorithm algorithm;
     private boolean quickSearch;
     private String scanError;
+    private WorldScanner.Scan pendingScan;
+    private Runnable scenarioReady;
+    private Supplier<String> afterScan;
+    private String scanSummary;
 
     public WorldSearch(SettingsStore settings) {
         this.settings = settings;
@@ -108,6 +115,10 @@ public final class WorldSearch {
     private void clearSnapshot() {
         snapshot = null;
         scanError = null;
+        scanSummary = null;
+        pendingScan = null;
+        scenarioReady = null;
+        afterScan = null;
         clearSession();
     }
 
@@ -120,29 +131,40 @@ public final class WorldSearch {
     }
 
     public String scan() {
+        if (pendingScan != null) {
+            return scanProgress();
+        }
         try {
-            SearchRegion region = selectedRegion();
-            snapshot = scanner.scan(world, region, start, goal, settings.current().maxSide, settings.current().maxStates);
-            scanError = null;
-            clearSession();
-            return snapshotMessage();
+            WorldScanner.Scan next = beginScan(selectedRegion(), start, goal);
+            clearSnapshot();
+            pendingScan = next;
+            return "Varredura iniciada. Use /elara status para acompanhar.";
         } catch (IllegalArgumentException | IllegalStateException exception) {
             scanError = exception.getMessage();
             throw exception;
         }
     }
 
-    public String snapshotMessage() {
-        SearchRegion region = graph().region();
-        return "Região analisada | " + graph().size() + " estados transitáveis | X " + region.minX()
-            + " a " + region.maxX() + " | Z " + region.minZ() + " a " + region.maxZ()
-            + " | Y " + region.y() + " a " + region.maxY();
+    private WorldScanner.Scan beginScan(SearchRegion region, GridPosition origin, GridPosition target) {
+        return scanner.begin(world, region, origin, target, settings.current().maxSide, settings.current().maxStates);
+    }
+
+    private String scanProgress() {
+        return "Analisando região | " + pendingScan.columns() + " colunas lidas | Etapa " + pendingScan.attempts();
+    }
+
+    private String afterScan(Supplier<String> action) {
+        if (pendingScan == null) {
+            scan();
+        }
+        afterScan = action;
+        return "Analisando a região antes de executar a busca.";
     }
 
     private SearchRegion selectedRegion() {
         requireEndpoints();
         if (firstCorner == null && secondCorner == null) {
-            return scanner.automaticRegion(world, start, goal, settings.current().maxSide, settings.current().maxStates);
+            return null;
         }
         if (firstCorner == null || secondCorner == null) {
             throw new IllegalStateException("Marque os dois cantos ou use /elara region auto.");
@@ -163,17 +185,17 @@ public final class WorldSearch {
         }
     }
 
-    public void prepareScenario(SearchRegion region, GridPosition origin, GridPosition target, SearchAlgorithm selected) {
-        WorldSnapshot prepared = scanner.scan(world, region, origin, target,
-            settings.current().maxSide, settings.current().maxStates);
+    public void prepareScenario(SearchRegion region, GridPosition origin, GridPosition target, SearchAlgorithm selected,
+                                Runnable onReady) {
+        WorldScanner.Scan next = beginScan(region, origin, target);
+        clearSnapshot();
         start = origin;
         goal = target;
         firstCorner = new GridPosition(region.minX(), region.y(), region.minZ());
         secondCorner = new GridPosition(region.maxX(), region.maxY(), region.maxZ());
-        snapshot = prepared;
+        pendingScan = next;
         algorithm = selected;
-        scanError = null;
-        clearSession();
+        scenarioReady = onReady;
     }
 
     public String chooseAlgorithm(SearchAlgorithm selection) {
@@ -186,6 +208,7 @@ public final class WorldSearch {
         if (algorithm != selection) {
             algorithm = selection;
             clearSession();
+            afterScan = null;
         }
     }
 
@@ -212,7 +235,7 @@ public final class WorldSearch {
                 bounds = manualRegion();
             }
             if (bounds != null && bounds.contains(position) && bounds.contains(destination)) {
-                prepareScenario(bounds, position, destination, selected);
+                prepareScenario(bounds, position, destination, selected, null);
             } else {
                 start = position;
                 goal = destination;
@@ -224,7 +247,12 @@ public final class WorldSearch {
     }
 
     private String run(SearchAlgorithm selection, boolean instant) {
-        SearchSession next = newSession(selection);
+        if (snapshot == null) {
+            String message = afterScan(() -> run(selection, instant));
+            algorithm = selection;
+            return message;
+        }
+        SearchSession next = new SearchSession(graph(), start, goal, selection);
         clearSession();
         session = next;
         algorithm = selection;
@@ -241,8 +269,11 @@ public final class WorldSearch {
     }
 
     public String step() {
+        if (snapshot == null) {
+            return afterScan(this::step);
+        }
         if (session == null) {
-            session = newSession(algorithm);
+            session = new SearchSession(graph(), start, goal, algorithm);
         }
         timer.start();
         List<SearchEvent> events;
@@ -259,6 +290,10 @@ public final class WorldSearch {
     }
 
     public String pause() {
+        if (pendingScan != null) {
+            afterScan = null;
+            return "A varredura continua. Use /elara run quando estiver pronta.";
+        }
         requireSession().pause();
         timer.stop();
         return session.status() == SearchStatus.PAUSED ? "Busca pausada." : phaseLabel();
@@ -276,8 +311,11 @@ public final class WorldSearch {
     }
 
     public String reset() {
+        if (snapshot == null) {
+            return afterScan(this::reset);
+        }
         if (session == null) {
-            session = newSession(algorithm);
+            session = new SearchSession(graph(), start, goal, algorithm);
         } else {
             session.reset();
         }
@@ -288,23 +326,22 @@ public final class WorldSearch {
         return "Busca reiniciada.";
     }
 
-    private SearchSession newSession(SearchAlgorithm selection) {
-        if (snapshot == null) {
-            scan();
-        }
-        return new SearchSession(graph(), start, goal, selection);
-    }
-
     private SearchSession requireSession() {
         if (session == null) {
+            if (pendingScan != null) {
+                throw new IllegalStateException("Aguarde a conclusão da varredura. Use /elara status.");
+            }
             throw new IllegalStateException("Inicie a busca com /elara start.");
         }
         return session;
     }
 
     public String status() {
+        if (pendingScan != null) {
+            return scanProgress();
+        }
         if (session == null) {
-            String readiness = snapshot == null ? "Defina e analise uma região" : graph().size() + " estados transitáveis";
+            String readiness = snapshot != null ? scanSummary : scanError != null ? scanError : "Defina e analise uma região";
             return algorithm + " | " + readiness + " | Início " + coordinates(start) + " | Meta " + coordinates(goal);
         }
         var metrics = session.metrics();
@@ -336,6 +373,10 @@ public final class WorldSearch {
 
     public void tick(MinecraftClient client) {
         bindWorld(client.world);
+        if (client.player != null && pendingScan != null) {
+            advanceScan(client);
+            return;
+        }
         if (client.player == null || client.isPaused()) {
             timer.stop();
             return;
@@ -363,6 +404,45 @@ public final class WorldSearch {
         }
     }
 
+    private void advanceScan(MinecraftClient client) {
+        WorldScanner.Scan scan = pendingScan;
+        try {
+            if (!scan.advance(SCAN_WORK_PER_TICK, SCAN_NANOS_PER_TICK)) {
+                return;
+            }
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            clearSnapshot();
+            scanError = exception.getMessage();
+            client.player.sendMessage(ElaraChat.warning(settings.palette(), scanError), false);
+            return;
+        }
+
+        snapshot = scan.result();
+        pendingScan = null;
+        SearchRegion region = graph().region();
+        String note = scan.boundaryLimited()
+            ? " | O limite da região ou dos chunks carregados ainda pode esconder desvios." : "";
+        scanSummary = graph().size() + " estados | " + WorldScanner.dimensions(region) + " | " + scan.columns()
+            + " colunas | " + scan.attempts() + " etapa(s) | " + scan.elapsedMillis() + " ms"
+            + " | X " + region.minX() + " a " + region.maxX() + " | Z " + region.minZ() + " a " + region.maxZ()
+            + " | Y " + region.y() + " a " + region.maxY() + note;
+        client.player.sendMessage(ElaraChat.info(settings.palette(), "Varredura concluída | " + scanSummary), false);
+
+        Runnable onReady = scenarioReady;
+        Supplier<String> queued = afterScan;
+        scenarioReady = null;
+        afterScan = null;
+        try {
+            if (onReady != null) onReady.run();
+            if (queued != null) {
+                String message = queued.get();
+                if (!message.isEmpty()) client.player.sendMessage(ElaraChat.info(settings.palette(), message), false);
+            }
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            client.player.sendMessage(ElaraChat.warning(settings.palette(), exception.getMessage()), false);
+        }
+    }
+
     private void record(List<SearchEvent> events) {
         var options = settings.current();
         trace.accept(events, snapshot, options.historySize, options.reducedMotion || runMode() == PlayMode.INSTANT);
@@ -379,7 +459,7 @@ public final class WorldSearch {
     }
 
     public String togglePause() {
-        return session != null && session.status() == SearchStatus.RUNNING ? pause()
+        return (pendingScan != null && afterScan != null) || (session != null && session.status() == SearchStatus.RUNNING) ? pause()
             : session == null ? run() : resume();
     }
 
@@ -409,6 +489,7 @@ public final class WorldSearch {
     public SearchSession session() { return session; }
     public GridGraph graph() { return snapshot == null ? null : snapshot.graph(); }
     public String scanError() { return scanError; }
+    public boolean scanning() { return pendingScan != null; }
 
     public double surface(GridPosition position) {
         return snapshot == null ? position.y() + 1.0 / 16 : snapshot.surface(position);
@@ -419,6 +500,9 @@ public final class WorldSearch {
     }
 
     public String phase() {
+        if (pendingScan != null) {
+            return "SCANNING";
+        }
         if (session != null) {
             return session.status() == SearchStatus.EXHAUSTED ? "NO PATH" : session.status().name();
         }
@@ -427,6 +511,7 @@ public final class WorldSearch {
 
     public String phaseLabel() {
         return switch (phase()) {
+            case "SCANNING" -> "ANALISANDO";
             case "READY" -> "PRONTO";
             case "RUNNING" -> "BUSCANDO";
             case "PAUSED" -> "PAUSADO";

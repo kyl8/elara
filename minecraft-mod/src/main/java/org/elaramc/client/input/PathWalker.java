@@ -173,7 +173,14 @@ public final class PathWalker {
             timedSession = null;
             return;
         }
-        if (session != search.session() || session.status() == SearchStatus.READY) {
+        if (planning && session == null && !search.scanning()) {
+            session = search.session();
+            if (session == null || !destination.equals(search.goal()) || algorithm != search.algorithm()) {
+                restoreInput();
+                return;
+            }
+        }
+        if (session != null && (session != search.session() || session.status() == SearchStatus.READY)) {
             finish(client, "Caminhada interrompida.", false);
             return;
         }
@@ -203,6 +210,9 @@ public final class PathWalker {
         }
 
         if (planning) {
+            if (session == null) {
+                return;
+            }
             if (session.status() == SearchStatus.EXHAUSTED) {
                 restoreInput();
             } else if (session.status() == SearchStatus.FOUND) {

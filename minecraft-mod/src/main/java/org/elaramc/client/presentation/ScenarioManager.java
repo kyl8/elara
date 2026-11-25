@@ -29,6 +29,7 @@ public final class ScenarioManager {
     private GridGraph activeGraph;
     private int loadTicks;
     private int terminalTicks;
+    private boolean submitted;
 
     private record Request(String name, Scenario scene, SearchAlgorithm override) {}
 
@@ -73,6 +74,7 @@ public final class ScenarioManager {
         }
         restoreCamera(client, scene.camera());
         pending = new Request(name, scene, override);
+        submitted = false;
         loadTicks = 0;
         return "Carregando " + name + " | Aguardando os chunks próximos.";
     }
@@ -168,20 +170,16 @@ public final class ScenarioManager {
     }
 
     private void finishLoad(MinecraftClient client) {
+        if (submitted) {
+            if (!search.scanning()) pending = null;
+            return;
+        }
         Request request = pending;
         Scenario scene = request.scene();
         try {
             search.prepareScenario(scene.region(), scene.start(), scene.goal(),
-                request.override() == null ? scene.algorithm() : request.override());
-            if (settings.current().expansionsPerSecond != scene.expansionsPerSecond()) {
-                search.editSettings(options -> options.expansionsPerSecond = scene.expansionsPerSecond());
-            }
-            active = scene;
-            activeName = request.name();
-            activeGraph = search.graph();
-            pending = null;
-            terminalTicks = 0;
-            chat(client, activeName + " pronto | " + search.graph().size() + " estados transitáveis.");
+                request.override() == null ? scene.algorithm() : request.override(), () -> completeLoad(client, request));
+            submitted = true;
         } catch (UnloadedRegionException exception) {
             if (++loadTicks >= LOAD_TICKS) {
                 pending = null;
@@ -192,6 +190,20 @@ public final class ScenarioManager {
             pending = null;
             client.player.sendMessage(ElaraChat.warning(settings.palette(), exception.getMessage()), false);
         }
+    }
+
+    private void completeLoad(MinecraftClient client, Request request) {
+        if (pending != request) return;
+        pending = null;
+        Scenario scene = request.scene();
+        if (settings.current().expansionsPerSecond != scene.expansionsPerSecond()) {
+            search.editSettings(options -> options.expansionsPerSecond = scene.expansionsPerSecond());
+        }
+        active = scene;
+        activeName = request.name();
+        activeGraph = search.graph();
+        terminalTicks = 0;
+        chat(client, activeName + " pronto | " + search.graph().size() + " estados transitáveis.");
     }
 
     private void bind(ClientWorld world) {
