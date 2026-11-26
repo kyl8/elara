@@ -18,6 +18,7 @@ public final class SearchSession {
     private final GridPosition start;
     private final GridPosition goal;
     private final SearchAlgorithm algorithm;
+    private final int skipDetailLimit;
     private final Deque<GridPosition> queue = new ArrayDeque<>();
     private final Deque<Frame> stack = new ArrayDeque<>();
     private final Map<GridPosition, GridPosition> predecessors = new LinkedHashMap<>();
@@ -28,10 +29,18 @@ public final class SearchSession {
     private List<GridPosition> path;
 
     public SearchSession(GridGraph graph, GridPosition start, GridPosition goal, SearchAlgorithm algorithm) {
+        this(graph, start, goal, algorithm, Integer.MAX_VALUE);
+    }
+
+    public SearchSession(GridGraph graph, GridPosition start, GridPosition goal, SearchAlgorithm algorithm, int skipDetailLimit) {
         this.graph = Objects.requireNonNull(graph, "graph");
         this.start = requireEndpoint(graph, start, "Origin");
         this.goal = requireEndpoint(graph, goal, "Goal");
         this.algorithm = Objects.requireNonNull(algorithm, "algorithm");
+        if (skipDetailLimit < 0) {
+            throw new IllegalArgumentException("Skip detail limit must be nonnegative");
+        }
+        this.skipDetailLimit = skipDetailLimit;
         initialize();
     }
 
@@ -154,7 +163,8 @@ public final class SearchSession {
     }
 
     private List<SearchEvent> expand() {
-        var events = new ArrayList<SearchEvent>();
+        var checks = new ExpansionChecks();
+        var events = checks.events;
         if (expanded == 0) {
             events.add(new SearchEvent.Started(algorithm, start, goal));
             events.add(new SearchEvent.Discovered(start, null));
@@ -170,10 +180,13 @@ public final class SearchSession {
         } else {
             if (algorithm == SearchAlgorithm.BFS) {
                 for (Direction direction : graph.directions()) {
-                    tryDiscover(current, direction, events);
+                    tryDiscover(current, direction, checks);
                 }
             } else {
-                scheduleNextDepthFirst(events);
+                scheduleNextDepthFirst(checks);
+            }
+            if (checks.omitted > 0) {
+                events.add(new SearchEvent.SkipsOmitted(checks.omitted));
             }
             if (predecessors.size() == expanded) {
                 status = SearchStatus.EXHAUSTED;
@@ -183,32 +196,40 @@ public final class SearchSession {
         return List.copyOf(events);
     }
 
-    private void scheduleNextDepthFirst(List<SearchEvent> events) {
+    private void scheduleNextDepthFirst(ExpansionChecks checks) {
         // Keep each parent's next direction so siblings are considered after the child branch.
+        List<Direction> directions = graph.directions();
         while (!stack.isEmpty()) {
             Frame frame = stack.getFirst();
-            if (frame.nextDirection == graph.directions().size()) {
+            if (checks.limitReached() && frame.nextDirection < directions.size()) {
+                // Direction bits follow traversal order, so a run of closed edges needs only a count.
+                int open = graph.openDirections(frame.state) >>> frame.nextDirection;
+                int next = open == 0 ? directions.size() : frame.nextDirection + Integer.numberOfTrailingZeros(open);
+                checks.omitted += next - frame.nextDirection;
+                frame.nextDirection = next;
+            }
+            if (frame.nextDirection == directions.size()) {
                 stack.removeFirst();
             } else {
-                Direction direction = graph.directions().get(frame.nextDirection++);
-                if (tryDiscover(frame.state, direction, events)) {
+                if (tryDiscover(frame.state, directions.get(frame.nextDirection++), checks)) {
                     return;
                 }
             }
         }
     }
 
-    private boolean tryDiscover(GridPosition source, Direction direction, List<SearchEvent> events) {
-        var transition = graph.transition(source, direction);
-        GridPosition target = transition.target();
-        if (transition.status() != GridGraph.MoveStatus.OPEN || predecessors.containsKey(target)) {
-            events.add(new SearchEvent.Skipped(source, transition));
-            return false;
+    private boolean tryDiscover(GridPosition source, Direction direction, ExpansionChecks checks) {
+        if ((graph.openDirections(source) & direction.bit()) != 0) {
+            GridPosition target = direction.from(source);
+            if (!predecessors.containsKey(target)) {
+                predecessors.put(target, source);
+                enqueue(target);
+                checks.events.add(new SearchEvent.Discovered(target, source));
+                return true;
+            }
         }
-        predecessors.put(target, source);
-        enqueue(target);
-        events.add(new SearchEvent.Discovered(target, source));
-        return true;
+        checks.skip(source, direction);
+        return false;
     }
 
     private void enqueue(GridPosition state) {
@@ -225,6 +246,25 @@ public final class SearchSession {
             reversed.addFirst(node);
         }
         return List.copyOf(reversed);
+    }
+
+    private final class ExpansionChecks {
+        private final List<SearchEvent> events = new ArrayList<>();
+        private int retained;
+        private int omitted;
+
+        boolean limitReached() {
+            return retained == skipDetailLimit;
+        }
+
+        void skip(GridPosition source, Direction direction) {
+            if (limitReached()) {
+                omitted++;
+            } else {
+                events.add(new SearchEvent.Skipped(source, graph.transition(source, direction)));
+                retained++;
+            }
+        }
     }
 
     private static final class Frame {

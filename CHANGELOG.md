@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Skip distant chunks and floors before checking individual overlay markers.
+- Bound DFS backtracking details while preserving the number of skipped moves in the inspector and keeping the same search results.
+- Give instant search a per-tick time budget, in addition to its expansion limit.
+- Build and test on Windows, Linux and macOS in GitHub Actions.
+
 ## 0.4.0
 
 - World scans now start near the marked points and grow toward reachable boundaries when a detour is needed. Each column is read once per scan, and all algorithms use the same completed graph.

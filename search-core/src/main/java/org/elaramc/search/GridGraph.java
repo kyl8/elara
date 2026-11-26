@@ -45,6 +45,10 @@ public final class GridGraph {
         return edges.containsKey(state);
     }
 
+    int openDirections(GridPosition state) {
+        return edges.get(state);
+    }
+
     /** Stable over the region, standable cells and their actual transitions. */
     public String fingerprint() {
         String cached = fingerprint;

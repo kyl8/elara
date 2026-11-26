@@ -104,6 +104,47 @@ class SearchSessionTest {
 
     @ParameterizedTest
     @EnumSource(SearchAlgorithm.class)
+    void omittingSkipDetailsKeepsExpansionOrderAndPath(SearchAlgorithm algorithm) {
+        GridGraph graph = loop();
+        var detailed = new SearchSession(graph, START, GOAL, algorithm);
+        var compact = new SearchSession(graph, START, GOAL, algorithm, 0);
+        while (detailed.status() != FOUND) {
+            List<SearchEvent> full = detailed.step();
+            List<SearchEvent> summary = compact.step();
+            assertEquals(expandedStates(full), expandedStates(summary));
+            assertEquals(full.stream().filter(SearchEvent.Skipped.class::isInstance).count(), skipCount(summary));
+            assertEquals(detailed.metrics(), compact.metrics());
+        }
+        assertEquals(detailed.path(), compact.path());
+    }
+
+    @Test
+    void longDepthFirstBacktrackKeepsOnlyTheRequestedSkipDetails() {
+        int length = 8_192;
+        var goal = cell(length, 0);
+        var builder = GridGraph.builder(new SearchRegion(0, 0, length, 0, 64, 65), length + 1, length + 1);
+        builder.addState(goal).addState(cell(0, 0));
+        for (int x = 1; x < length; x++) {
+            builder.addState(cell(x, 0)).connect(cell(x - 1, 0), cell(x, 0));
+        }
+        var session = new SearchSession(builder.build(), cell(0, 0), goal, DFS, 32);
+        for (int x = 1; x < length; x++) session.step();
+        List<SearchEvent> last = session.step();
+
+        assertEquals(EXHAUSTED, session.status());
+        assertEquals(length, session.metrics().expanded());
+        assertEquals(32, last.stream().filter(SearchEvent.Skipped.class::isInstance).count());
+        assertEquals(14 + 11 * (length - 1), skipCount(last));
+        assertEquals(35, last.size());
+    }
+
+    private static int skipCount(List<SearchEvent> events) {
+        return events.stream().mapToInt(event -> event instanceof SearchEvent.Skipped ? 1
+            : event instanceof SearchEvent.SkipsOmitted omitted ? omitted.count() : 0).sum();
+    }
+
+    @ParameterizedTest
+    @EnumSource(SearchAlgorithm.class)
     void aSingleStepExpandsOneStateAndPausingStopsAutomaticAdvancement(SearchAlgorithm algorithm) {
         var session = new SearchSession(loop(), START, GOAL, algorithm);
         assertEquals(READY, session.status());

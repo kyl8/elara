@@ -8,7 +8,7 @@
 
 <p><strong><a href="https://github.com/kyl8/elara/releases/latest">Download Elara</a></strong></p>
 
-<p>Minecraft 1.20.1 with Java 17, Fabric Loader and <a href="https://modrinth.com/mod/fabric-api/versions?g=1.20.1">Fabric API</a>. Put the JAR in <code>mods</code>.</p>
+<p>Minecraft 1.20.1 with Java 17, Fabric Loader 0.16.14 or newer, and <a href="https://modrinth.com/mod/fabric-api/versions?g=1.20.1">Fabric API for 1.20.1</a>. Keep one Elara JAR in <code>mods</code>.</p>
 
 <p><code>/elara finish</code> marks the destination. <code>/elara start</code> finds the route.<br>
 In single-player, Elara walks from your current position and times the trip.</p>
@@ -17,6 +17,8 @@ In single-player, Elara walks from your current position and times the trip.</p>
 Automatic scans grow within loaded chunks as needed. Compare <code>/elara run bfs</code> and <code>/elara run dfs</code> on the same graph.</p>
 
 <p>Press <strong>F6</strong> for the route panel or run <code>/elara help</code> for commands.</p>
+
+<p>For slower PCs, <code>/elara overlay</code> switches off the 3D markers while keeping search and the HUD available. <a href="https://prismlauncher.org/wiki/getting-started/installing-java/">Java setup for Prism Launcher</a>.</p>
 
 <details>
   <summary>See the route panel</summary>

@@ -16,6 +16,7 @@ import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import org.elaramc.client.config.ElaraSettings.Palette;
 import org.elaramc.client.config.SettingsStore;
+import org.elaramc.client.search.SearchTrace.Mark;
 import org.elaramc.client.search.WorldSearch;
 import org.elaramc.search.GridPosition;
 import org.joml.Matrix4f;
@@ -48,19 +49,24 @@ public final class WorldOverlay {
             Matrix4f matrix = matrices.peek().getPositionMatrix();
             boolean showExploration = search.showExploration();
             geometry.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
-            for (var tile : search.trace().tiles()) {
-                if ((!showExploration && tile.mark != org.elaramc.client.search.SearchTrace.Mark.PATH)
-                    || !visible(tile.position, tile.floor, camera, limit)
-                    || frustum != null && !frustum.isVisible(tile.bounds)) {
+            for (var section : search.trace().sections()) {
+                if (!section.mayBeVisible(camera.x, camera.y, camera.z, limit, showExploration)
+                    || frustum != null && !frustum.isVisible(section.bounds)) {
                     continue;
                 }
-                int color = switch (tile.mark) {
-                    case FRONTIER -> Palette.alpha(colors.lavender(), 109);
-                    case EXPANDED -> Palette.alpha(colors.iceBlue(), 96);
-                    case PATH -> Palette.alpha(colors.champagne(), 166);
-                };
-                double inset = tile.mark == org.elaramc.client.search.SearchTrace.Mark.PATH ? 0.09 : 0.15;
-                square(matrix, tile.position, tile.floor + 0.016, inset, color);
+                for (var tile : section.tiles()) {
+                    if ((!showExploration && tile.mark != Mark.PATH) || !visible(tile.position, tile.floor, camera, limit)
+                        || frustum != null && !frustum.isVisible(tile.bounds)) {
+                        continue;
+                    }
+                    int color = switch (tile.mark) {
+                        case FRONTIER -> Palette.alpha(colors.lavender(), 109);
+                        case EXPANDED -> Palette.alpha(colors.iceBlue(), 96);
+                        case PATH -> Palette.alpha(colors.champagne(), 166);
+                    };
+                    double inset = tile.mark == Mark.PATH ? 0.09 : 0.15;
+                    square(matrix, tile.position, tile.floor + 0.016, inset, color);
+                }
             }
             var session = search.session();
             if (showExploration && session != null) {

@@ -27,6 +27,7 @@ public final class WorldSearch {
     private static final int PATH_PAGE_SIZE = 6;
     private static final int SCAN_WORK_PER_TICK = 512;
     private static final long SCAN_NANOS_PER_TICK = 2_000_000;
+    private static final long INSTANT_NANOS_PER_TICK = 2_000_000;
 
     private final WorldScanner scanner = new WorldScanner();
     private final SettingsStore settings;
@@ -252,7 +253,7 @@ public final class WorldSearch {
             algorithm = selection;
             return message;
         }
-        SearchSession next = new SearchSession(graph(), start, goal, selection);
+        SearchSession next = newSession(selection);
         clearSession();
         session = next;
         algorithm = selection;
@@ -273,7 +274,7 @@ public final class WorldSearch {
             return afterScan(this::step);
         }
         if (session == null) {
-            session = new SearchSession(graph(), start, goal, algorithm);
+            session = newSession(algorithm);
         }
         timer.start();
         List<SearchEvent> events;
@@ -315,7 +316,7 @@ public final class WorldSearch {
             return afterScan(this::reset);
         }
         if (session == null) {
-            session = new SearchSession(graph(), start, goal, algorithm);
+            session = newSession(algorithm);
         } else {
             session.reset();
         }
@@ -334,6 +335,10 @@ public final class WorldSearch {
             throw new IllegalStateException("Inicie a busca com /elara start.");
         }
         return session;
+    }
+
+    private SearchSession newSession(SearchAlgorithm selection) {
+        return new SearchSession(graph(), start, goal, selection, SearchTrace.STORED_SKIPS_PER_STEP);
     }
 
     public String status() {
@@ -387,9 +392,14 @@ public final class WorldSearch {
         }
         timer.start();
         var options = settings.current();
-        int budget = clock.budget(runMode(), options.expansionsPerSecond);
+        PlayMode mode = runMode();
+        int budget = clock.budget(mode, options.expansionsPerSecond);
+        long started = mode == PlayMode.INSTANT ? System.nanoTime() : 0;
         for (int index = 0; index < budget && session.status() == SearchStatus.RUNNING; index++) {
             record(session.advance());
+            if (mode == PlayMode.INSTANT && System.nanoTime() - started >= INSTANT_NANOS_PER_TICK) {
+                break;
+            }
         }
         if (quickSearch || session.status() != SearchStatus.RUNNING) {
             timer.stop();

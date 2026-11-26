@@ -19,6 +19,10 @@ public sealed interface SearchEvent {
         }
     }
 
+    /** Extra skips counted after an expansion's optional detail budget was reached. */
+    record SkipsOmitted(int count) implements SearchEvent {
+    }
+
     record GoalFound(GridPosition goal) implements SearchEvent {
     }
 
